@@ -1,11 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { SupabaseClient } from "@supabase/supabase-js";
+import { type Sql } from "postgres";
 import { z } from "zod";
 
-export function registerAwardTools(
-  server: McpServer,
-  supabase: SupabaseClient
-): void {
+export function registerAwardTools(server: McpServer, sql: Sql): void {
+  // ── list_awards ────────────────────────────────────────────────────────────
+
   server.tool(
     "list_awards",
     "List all hackathon awards and prizes",
@@ -14,24 +13,22 @@ export function registerAwardTools(
       offset: z.number().int().min(0).optional().describe("Pagination offset"),
     },
     async ({ limit = 50, offset = 0 }) => {
-      const { data, error } = await supabase
-        .from("awards")
-        .select("*, teams(name), submissions(title)")
-        .range(offset, offset + limit - 1)
-        .order("rank", { ascending: true });
-
-      if (error) {
-        return {
-          content: [{ type: "text", text: `Error fetching awards: ${error.message}` }],
-          isError: true,
-        };
-      }
+      const rows = await sql`
+        SELECT a.*, t.name AS team_name, s.title AS submission_title
+        FROM awards a
+        LEFT JOIN teams t ON t.id = a.team_id
+        LEFT JOIN submissions s ON s.id = a.submission_id
+        ORDER BY a.rank ASC NULLS LAST
+        LIMIT ${limit} OFFSET ${offset}
+      `;
 
       return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(rows, null, 2) }],
       };
     }
   );
+
+  // ── get_award ──────────────────────────────────────────────────────────────
 
   server.tool(
     "get_award",
@@ -40,24 +37,37 @@ export function registerAwardTools(
       id: z.string().uuid().describe("Award UUID"),
     },
     async ({ id }) => {
-      const { data, error } = await supabase
-        .from("awards")
-        .select("*, teams(name, team_members(participants(name))), submissions(title)")
-        .eq("id", id)
-        .single();
+      const rows = await sql`
+        SELECT
+          a.*,
+          s.title AS submission_title,
+          t.name AS team_name,
+          json_agg(
+            json_build_object('full_name', r.full_name)
+          ) FILTER (WHERE r.id IS NOT NULL) AS team_members
+        FROM awards a
+        LEFT JOIN submissions s ON s.id = a.submission_id
+        LEFT JOIN teams t ON t.id = a.team_id
+        LEFT JOIN team_members tm ON tm.team_id = t.id
+        LEFT JOIN registrations r ON r.id = tm.registration_id
+        WHERE a.id = ${id}
+        GROUP BY a.id, s.title, t.name
+      `;
 
-      if (error) {
+      if (rows.length === 0) {
         return {
-          content: [{ type: "text", text: `Error fetching award: ${error.message}` }],
+          content: [{ type: "text", text: "Award not found" }],
           isError: true,
         };
       }
 
       return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(rows[0], null, 2) }],
       };
     }
   );
+
+  // ── create_award ───────────────────────────────────────────────────────────
 
   server.tool(
     "create_award",
@@ -69,24 +79,19 @@ export function registerAwardTools(
       rank: z.number().int().min(1).optional().describe("Display rank/order for this award"),
     },
     async ({ name, description, prize, rank }) => {
-      const { data, error } = await supabase
-        .from("awards")
-        .insert({ name, description, prize, rank })
-        .select()
-        .single();
-
-      if (error) {
-        return {
-          content: [{ type: "text", text: `Error creating award: ${error.message}` }],
-          isError: true,
-        };
-      }
+      const rows = await sql`
+        INSERT INTO awards (name, description, prize, rank)
+        VALUES (${name}, ${description ?? null}, ${prize ?? null}, ${rank ?? null})
+        RETURNING *
+      `;
 
       return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(rows[0], null, 2) }],
       };
     }
   );
+
+  // ── assign_award ───────────────────────────────────────────────────────────
 
   server.tool(
     "assign_award",
@@ -98,30 +103,31 @@ export function registerAwardTools(
       notes: z.string().optional().describe("Judges' notes or reason for selection"),
     },
     async ({ award_id, team_id, submission_id, notes }) => {
-      const { data, error } = await supabase
-        .from("awards")
-        .update({
-          team_id,
-          submission_id,
-          notes,
-          awarded_at: new Date().toISOString(),
-        })
-        .eq("id", award_id)
-        .select()
-        .single();
+      const rows = await sql`
+        UPDATE awards
+        SET
+          team_id       = ${team_id},
+          submission_id = ${submission_id},
+          notes         = ${notes ?? null},
+          awarded_at    = now()
+        WHERE id = ${award_id}
+        RETURNING *
+      `;
 
-      if (error) {
+      if (rows.length === 0) {
         return {
-          content: [{ type: "text", text: `Error assigning award: ${error.message}` }],
+          content: [{ type: "text", text: "Award not found" }],
           isError: true,
         };
       }
 
       return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(rows[0], null, 2) }],
       };
     }
   );
+
+  // ── revoke_award ───────────────────────────────────────────────────────────
 
   server.tool(
     "revoke_award",
@@ -130,30 +136,27 @@ export function registerAwardTools(
       award_id: z.string().uuid().describe("Award UUID"),
     },
     async ({ award_id }) => {
-      const { data, error } = await supabase
-        .from("awards")
-        .update({
-          team_id: null,
-          submission_id: null,
-          notes: null,
-          awarded_at: null,
-        })
-        .eq("id", award_id)
-        .select()
-        .single();
+      const rows = await sql`
+        UPDATE awards
+        SET team_id = NULL, submission_id = NULL, notes = NULL, awarded_at = NULL
+        WHERE id = ${award_id}
+        RETURNING *
+      `;
 
-      if (error) {
+      if (rows.length === 0) {
         return {
-          content: [{ type: "text", text: `Error revoking award: ${error.message}` }],
+          content: [{ type: "text", text: "Award not found" }],
           isError: true,
         };
       }
 
       return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(rows[0], null, 2) }],
       };
     }
   );
+
+  // ── get_leaderboard ────────────────────────────────────────────────────────
 
   server.tool(
     "get_leaderboard",
@@ -162,40 +165,23 @@ export function registerAwardTools(
       limit: z.number().int().min(1).max(50).optional().describe("Number of teams to show (default 10)"),
     },
     async ({ limit = 10 }) => {
-      // Aggregate average scores per submission joined with team info
-      const { data, error } = await supabase
-        .from("scores")
-        .select("submission_id, total, submissions(title, team_id, teams(name))")
-        .order("total", { ascending: false })
-        .limit(limit * 5); // over-fetch to allow grouping
+      const rows = await sql`
+        SELECT
+          s.id          AS submission_id,
+          s.title,
+          t.id          AS team_id,
+          t.name        AS team_name,
+          ROUND(AVG(sc.total)::numeric, 2) AS average_total,
+          COUNT(sc.id)::int                AS judge_count
+        FROM submissions s
+        JOIN teams t  ON t.id  = s.team_id
+        JOIN scores sc ON sc.submission_id = s.id
+        GROUP BY s.id, s.title, t.id, t.name
+        ORDER BY average_total DESC
+        LIMIT ${limit}
+      `;
 
-      if (error) {
-        return {
-          content: [{ type: "text", text: `Error fetching leaderboard: ${error.message}` }],
-          isError: true,
-        };
-      }
-
-      // Group by submission and compute averages
-      const bySubmission = new Map<string, { submission_id: string; scores: number[]; meta: unknown }>();
-      for (const row of data ?? []) {
-        const id = row.submission_id as string;
-        if (!bySubmission.has(id)) {
-          bySubmission.set(id, { submission_id: id, scores: [], meta: row.submissions });
-        }
-        bySubmission.get(id)!.scores.push(row.total as number);
-      }
-
-      const leaderboard = Array.from(bySubmission.values())
-        .map(({ submission_id, scores, meta }) => ({
-          submission_id,
-          meta,
-          average_total: scores.reduce((a, b) => a + b, 0) / scores.length,
-          judge_count: scores.length,
-        }))
-        .sort((a, b) => b.average_total - a.average_total)
-        .slice(0, limit)
-        .map((entry, idx) => ({ rank: idx + 1, ...entry }));
+      const leaderboard = rows.map((row, idx) => ({ rank: idx + 1, ...row }));
 
       return {
         content: [{ type: "text", text: JSON.stringify(leaderboard, null, 2) }],
