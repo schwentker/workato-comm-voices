@@ -1,30 +1,19 @@
 /**
  * participants.ts
  *
- * Maps to the `registrations` table in the Neon DB (restored from the
- * enterprise-hack-hub Supabase backup). Column mapping:
- *
- *   Spec field        → DB column
- *   ────────────────────────────────
- *   name              → full_name
- *   skills string[]   → challenges text[]
- *   track_preference  → track
- *   registered_at     → created_at
- *   team_id           → team_members.team_id (via registration_id FK join)
+ * Maps to the `registrations` table in the Neon DB.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import postgres, { type Sql } from "postgres";
 import { z } from "zod";
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+import { fireWorkatoWebhook } from "../webhooks/workato.js";
 
 const TRACK_VALUES = ["ai", "fintech", "health", "enterprise", "open"] as const;
 type Track = (typeof TRACK_VALUES)[number];
 
 const PG_UNIQUE_VIOLATION = "23505";
-
-// ── Webhook helper ────────────────────────────────────────────────────────────
 
 interface ParticipantPayload {
   id: string;
@@ -36,37 +25,13 @@ interface ParticipantPayload {
   registered_at: string;
 }
 
-async function fireWebhook(payload: ParticipantPayload): Promise<void> {
-  const webhookUrl = process.env["WORKATO_REGISTER_WEBHOOK"];
-  if (!webhookUrl) return;
-
-  try {
-    const res = await fetch(webhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      console.error(
-        `[register_participant] Webhook returned ${res.status}: ${await res.text()}`
-      );
-    }
-  } catch (err) {
-    console.error("[register_participant] Webhook delivery failed:", err);
-  }
-}
-
-// ── Tool registration ─────────────────────────────────────────────────────────
-
 export function registerTools(server: McpServer, sql: Sql): void {
-  // ── Tool 1: register_participant ───────────────────────────────────────────
-
   server.tool(
     "register_participant",
     "Register a new hackathon participant. Fires a Workato webhook on success.",
     {
       name: z.string().min(1).describe("Full name"),
-      email: z.string().email().describe("Email address — must be unique"),
+      email: z.string().email().describe("Email address - must be unique"),
       skills: z
         .array(z.string().min(1))
         .min(1)
@@ -113,7 +78,7 @@ export function registerTools(server: McpServer, sql: Sql): void {
           registered_at: data.created_at,
         };
 
-        await fireWebhook(payload);
+        await fireWorkatoWebhook("WORKATO_REGISTER_WEBHOOK", payload, "register_participant");
 
         return {
           content: [
@@ -145,8 +110,6 @@ export function registerTools(server: McpServer, sql: Sql): void {
       }
     }
   );
-
-  // ── Tool 2: get_participant ────────────────────────────────────────────────
 
   server.tool(
     "get_participant",

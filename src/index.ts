@@ -1,28 +1,15 @@
 import express, { Request, Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import postgres from "postgres";
 
+import { closeNeonClient, getNeonClient } from "./db/neon.js";
 import { registerTools as registerParticipantTools } from "./tools/participants.js";
 import { registerTeamTools } from "./tools/teams.js";
 import { registerSubmissionTools } from "./tools/submissions.js";
 import { registerAwardTools } from "./tools/awards.js";
 
-// ── Environment ───────────────────────────────────────────────────────────────
-
 const PORT = parseInt(process.env["PORT"] ?? "3000", 10);
-const DATABASE_URL = process.env["DATABASE_URL"];
-
-if (!DATABASE_URL) {
-  console.error("Missing required env var: DATABASE_URL");
-  process.exit(1);
-}
-
-// ── Postgres (Neon) ───────────────────────────────────────────────────────────
-
-const db = postgres(DATABASE_URL, { ssl: "require" });
-
-// ── MCP Server ────────────────────────────────────────────────────────────────
+const db = getNeonClient();
 
 const mcp = new McpServer({
   name: "workato-hackathon-mcp",
@@ -34,20 +21,15 @@ registerTeamTools(mcp, db);
 registerSubmissionTools(mcp, db);
 registerAwardTools(mcp, db);
 
-// ── Express ───────────────────────────────────────────────────────────────────
-
 const app = express();
 app.use(express.json());
 
-// Health check
 app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// Active SSE transports keyed by session ID
 const transports = new Map<string, SSEServerTransport>();
 
-// SSE connection endpoint – clients open a long-lived GET connection here
 app.get("/sse", async (_req: Request, res: Response) => {
   const transport = new SSEServerTransport("/messages", res);
   transports.set(transport.sessionId, transport);
@@ -59,7 +41,6 @@ app.get("/sse", async (_req: Request, res: Response) => {
   await mcp.connect(transport);
 });
 
-// Message endpoint – clients POST JSON-RPC messages here
 app.post("/messages", async (req: Request, res: Response) => {
   const sessionId = req.query["sessionId"] as string | undefined;
 
@@ -78,8 +59,6 @@ app.post("/messages", async (req: Request, res: Response) => {
   await transport.handlePostMessage(req, res);
 });
 
-// ── Startup ───────────────────────────────────────────────────────────────────
-
 const server = app.listen(PORT, () => {
   const toolCount = (mcp as unknown as { _registeredTools: Record<string, unknown> })._registeredTools
     ? Object.keys((mcp as unknown as { _registeredTools: Record<string, unknown> })._registeredTools).length
@@ -92,13 +71,11 @@ const server = app.listen(PORT, () => {
   console.log(`[workato-hackathon-mcp] Health endpoint:  GET  http://localhost:${PORT}/health`);
 });
 
-// ── Graceful Shutdown ─────────────────────────────────────────────────────────
-
 process.on("SIGTERM", () => {
-  console.log("[workato-hackathon-mcp] SIGTERM received – shutting down gracefully");
+  console.log("[workato-hackathon-mcp] SIGTERM received - shutting down gracefully");
   server.close(() => {
     console.log("[workato-hackathon-mcp] HTTP server closed");
-    void db.end();
+    void closeNeonClient();
     process.exit(0);
   });
 });

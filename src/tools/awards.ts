@@ -2,8 +2,212 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type Sql } from "postgres";
 import { z } from "zod";
 
+import { fireWorkatoWebhook } from "../webhooks/workato.js";
+
+const STANDARD_AWARD_NAMES = ["1st Place", "2nd Place", "3rd Place"] as const;
+
 export function registerAwardTools(server: McpServer, sql: Sql): void {
-  // ── list_awards ────────────────────────────────────────────────────────────
+  server.tool(
+    "score_submission",
+    "Record a score for a submission",
+    {
+      submission_id: z.string().uuid().describe("Submission UUID"),
+      judge_id: z.string().uuid().describe("Judge registration UUID"),
+      innovation: z.number().min(0).max(10).describe("Innovation score (0-10)"),
+      technical: z.number().min(0).max(10).describe("Technical execution score (0-10)"),
+      impact: z.number().min(0).max(10).describe("Business impact score (0-10)"),
+      presentation: z.number().min(0).max(10).describe("Presentation score (0-10)"),
+      notes: z.string().optional().describe("Judge's notes or feedback"),
+    },
+    async ({ submission_id, judge_id, innovation, technical, impact, presentation, notes }) => {
+      const total = innovation + technical + impact + presentation;
+
+      const rows = await sql`
+        INSERT INTO scores
+          (submission_id, judge_id, innovation, technical, impact, presentation, total, notes)
+        VALUES
+          (${submission_id}, ${judge_id}, ${innovation}, ${technical}, ${impact}, ${presentation}, ${total}, ${notes ?? null})
+        ON CONFLICT (submission_id, judge_id) DO UPDATE SET
+          innovation   = EXCLUDED.innovation,
+          technical    = EXCLUDED.technical,
+          impact       = EXCLUDED.impact,
+          presentation = EXCLUDED.presentation,
+          total        = EXCLUDED.total,
+          notes        = EXCLUDED.notes
+        RETURNING *
+      `;
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(rows[0], null, 2) }],
+      };
+    }
+  );
+
+  server.tool(
+    "trigger_awards",
+    "Compute winners from scored submissions and assign top awards.",
+    {
+      event_id: z.string().uuid().optional().describe("Optional hackathon event UUID"),
+      top_n: z.number().int().min(1).max(3).default(3).describe("Number of top winners to award"),
+    },
+    async ({ event_id, top_n }) => {
+      const leaderboard = await sql<{
+        submission_id: string;
+        submission_title: string;
+        team_id: string;
+        team_name: string;
+        average_total: number;
+        judge_count: number;
+      }[]>`
+        SELECT
+          s.id AS submission_id,
+          s.title AS submission_title,
+          t.id AS team_id,
+          t.name AS team_name,
+          ROUND(AVG(sc.total)::numeric, 2) AS average_total,
+          COUNT(sc.id)::int AS judge_count
+        FROM submissions s
+        JOIN teams t ON t.id = s.team_id
+        JOIN scores sc ON sc.submission_id = s.id
+        WHERE ${event_id ? sql`s.event_id = ${event_id}` : sql`TRUE`}
+        GROUP BY s.id, s.title, t.id, t.name
+        ORDER BY average_total DESC
+        LIMIT ${top_n}
+      `;
+
+      if (leaderboard.length === 0) {
+        return {
+          content: [{ type: "text", text: "No scored submissions found to award" }],
+          isError: true,
+        };
+      }
+
+      const assignments: Array<{
+        award_name: string;
+        rank: number;
+        team_id: string;
+        team_name: string;
+        submission_id: string;
+        submission_title: string;
+        average_total: number;
+      }> = [];
+
+      for (let i = 0; i < leaderboard.length; i += 1) {
+        const winner = leaderboard[i]!;
+        const rank = i + 1;
+        const awardName = STANDARD_AWARD_NAMES[i] ?? `Top ${rank}`;
+
+        const existing = await sql<{ id: string }[]>`
+          SELECT id
+          FROM awards
+          WHERE name = ${awardName}
+            AND (
+              (${event_id ?? null}::uuid IS NULL AND event_id IS NULL)
+              OR event_id = ${event_id ?? null}
+            )
+          ORDER BY created_at ASC
+          LIMIT 1
+        `;
+
+        if (existing.length > 0) {
+          await sql`
+            UPDATE awards
+            SET
+              rank = ${rank},
+              team_id = ${winner.team_id},
+              submission_id = ${winner.submission_id},
+              notes = ${`Auto-assigned by trigger_awards with average score ${winner.average_total}`},
+              awarded_at = now()
+            WHERE id = ${existing[0]!.id}
+          `;
+        } else {
+          await sql`
+            INSERT INTO awards (name, rank, event_id, team_id, submission_id, notes, awarded_at)
+            VALUES (
+              ${awardName},
+              ${rank},
+              ${event_id ?? null},
+              ${winner.team_id},
+              ${winner.submission_id},
+              ${`Auto-assigned by trigger_awards with average score ${winner.average_total}`},
+              now()
+            )
+          `;
+        }
+
+        assignments.push({
+          award_name: awardName,
+          rank,
+          team_id: winner.team_id,
+          team_name: winner.team_name,
+          submission_id: winner.submission_id,
+          submission_title: winner.submission_title,
+          average_total: winner.average_total,
+        });
+      }
+
+      await fireWorkatoWebhook(
+        "WORKATO_AWARDS_WEBHOOK",
+        { event_id: event_id ?? null, assignments },
+        "trigger_awards"
+      );
+
+      return {
+        content: [{ type: "text", text: JSON.stringify({ assignments }, null, 2) }],
+      };
+    }
+  );
+
+  server.tool(
+    "get_event_status",
+    "Get high-level event status including team, submission, scoring, and awards metrics.",
+    {
+      event_id: z.string().uuid().optional().describe("Optional hackathon event UUID"),
+    },
+    async ({ event_id }) => {
+      const [participants, teams, submissionsByStatus, scoreCount, awardsCount] = await Promise.all([
+        sql<{ total: number }[]>`
+          SELECT COUNT(*)::int AS total FROM registrations
+        `,
+        sql<{ total: number }[]>`
+          SELECT COUNT(*)::int AS total
+          FROM teams
+          WHERE ${event_id ? sql`event_id = ${event_id}` : sql`TRUE`}
+        `,
+        sql<{ status: string; count: number }[]>`
+          SELECT status, COUNT(*)::int AS count
+          FROM submissions
+          WHERE ${event_id ? sql`event_id = ${event_id}` : sql`TRUE`}
+          GROUP BY status
+        `,
+        sql<{ total: number }[]>`
+          SELECT COUNT(sc.id)::int AS total
+          FROM scores sc
+          JOIN submissions s ON s.id = sc.submission_id
+          WHERE ${event_id ? sql`s.event_id = ${event_id}` : sql`TRUE`}
+        `,
+        sql<{ total: number }[]>`
+          SELECT COUNT(*)::int AS total
+          FROM awards
+          WHERE ${event_id ? sql`event_id = ${event_id}` : sql`TRUE`}
+            AND awarded_at IS NOT NULL
+        `,
+      ]);
+
+      const status = {
+        event_id: event_id ?? null,
+        participant_count: participants[0]?.total ?? 0,
+        team_count: teams[0]?.total ?? 0,
+        submissions: submissionsByStatus,
+        score_count: scoreCount[0]?.total ?? 0,
+        awarded_count: awardsCount[0]?.total ?? 0,
+      };
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(status, null, 2) }],
+      };
+    }
+  );
 
   server.tool(
     "list_awards",
@@ -27,136 +231,6 @@ export function registerAwardTools(server: McpServer, sql: Sql): void {
       };
     }
   );
-
-  // ── get_award ──────────────────────────────────────────────────────────────
-
-  server.tool(
-    "get_award",
-    "Get a single award by ID",
-    {
-      id: z.string().uuid().describe("Award UUID"),
-    },
-    async ({ id }) => {
-      const rows = await sql`
-        SELECT
-          a.*,
-          s.title AS submission_title,
-          t.name AS team_name,
-          json_agg(
-            json_build_object('full_name', r.full_name)
-          ) FILTER (WHERE r.id IS NOT NULL) AS team_members
-        FROM awards a
-        LEFT JOIN submissions s ON s.id = a.submission_id
-        LEFT JOIN teams t ON t.id = a.team_id
-        LEFT JOIN team_members tm ON tm.team_id = t.id
-        LEFT JOIN registrations r ON r.id = tm.registration_id
-        WHERE a.id = ${id}
-        GROUP BY a.id, s.title, t.name
-      `;
-
-      if (rows.length === 0) {
-        return {
-          content: [{ type: "text", text: "Award not found" }],
-          isError: true,
-        };
-      }
-
-      return {
-        content: [{ type: "text", text: JSON.stringify(rows[0], null, 2) }],
-      };
-    }
-  );
-
-  // ── create_award ───────────────────────────────────────────────────────────
-
-  server.tool(
-    "create_award",
-    "Create a new award category",
-    {
-      name: z.string().min(1).describe("Award name (e.g. 'Best AI Integration', 'Most Innovative')"),
-      description: z.string().optional().describe("Award description"),
-      prize: z.string().optional().describe("Prize description (e.g. '$500', 'Trophy + recognition')"),
-      rank: z.number().int().min(1).optional().describe("Display rank/order for this award"),
-    },
-    async ({ name, description, prize, rank }) => {
-      const rows = await sql`
-        INSERT INTO awards (name, description, prize, rank)
-        VALUES (${name}, ${description ?? null}, ${prize ?? null}, ${rank ?? null})
-        RETURNING *
-      `;
-
-      return {
-        content: [{ type: "text", text: JSON.stringify(rows[0], null, 2) }],
-      };
-    }
-  );
-
-  // ── assign_award ───────────────────────────────────────────────────────────
-
-  server.tool(
-    "assign_award",
-    "Assign an award to a team and their submission",
-    {
-      award_id: z.string().uuid().describe("Award UUID"),
-      team_id: z.string().uuid().describe("Winning team UUID"),
-      submission_id: z.string().uuid().describe("Winning submission UUID"),
-      notes: z.string().optional().describe("Judges' notes or reason for selection"),
-    },
-    async ({ award_id, team_id, submission_id, notes }) => {
-      const rows = await sql`
-        UPDATE awards
-        SET
-          team_id       = ${team_id},
-          submission_id = ${submission_id},
-          notes         = ${notes ?? null},
-          awarded_at    = now()
-        WHERE id = ${award_id}
-        RETURNING *
-      `;
-
-      if (rows.length === 0) {
-        return {
-          content: [{ type: "text", text: "Award not found" }],
-          isError: true,
-        };
-      }
-
-      return {
-        content: [{ type: "text", text: JSON.stringify(rows[0], null, 2) }],
-      };
-    }
-  );
-
-  // ── revoke_award ───────────────────────────────────────────────────────────
-
-  server.tool(
-    "revoke_award",
-    "Remove a team assignment from an award",
-    {
-      award_id: z.string().uuid().describe("Award UUID"),
-    },
-    async ({ award_id }) => {
-      const rows = await sql`
-        UPDATE awards
-        SET team_id = NULL, submission_id = NULL, notes = NULL, awarded_at = NULL
-        WHERE id = ${award_id}
-        RETURNING *
-      `;
-
-      if (rows.length === 0) {
-        return {
-          content: [{ type: "text", text: "Award not found" }],
-          isError: true,
-        };
-      }
-
-      return {
-        content: [{ type: "text", text: JSON.stringify(rows[0], null, 2) }],
-      };
-    }
-  );
-
-  // ── get_leaderboard ────────────────────────────────────────────────────────
 
   server.tool(
     "get_leaderboard",

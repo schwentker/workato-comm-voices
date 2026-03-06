@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type Sql } from "postgres";
 import { z } from "zod";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+import { fireWorkatoWebhook } from "../webhooks/workato.js";
 
 interface MatchCandidate {
   name: string;
@@ -20,34 +20,7 @@ interface TeamWebhookPayload {
   created_at: string;
 }
 
-// ── Webhook helper ────────────────────────────────────────────────────────────
-
-async function fireTeamWebhook(payload: TeamWebhookPayload): Promise<void> {
-  const webhookUrl = process.env["WORKATO_TEAM_WEBHOOK"];
-  if (!webhookUrl) return;
-
-  try {
-    const res = await fetch(webhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      console.error(
-        `[confirm_team_formation] Webhook returned ${res.status}: ${await res.text()}`
-      );
-    }
-  } catch (err) {
-    // Non-fatal: team already created — just log
-    console.error("[confirm_team_formation] Webhook delivery failed:", err);
-  }
-}
-
-// ── Tool registration ─────────────────────────────────────────────────────────
-
 export function registerTeamTools(server: McpServer, sql: Sql): void {
-  // ── Tool 1: match_teams_by_skills ──────────────────────────────────────────
-
   server.tool(
     "match_teams_by_skills",
     "Find unassigned participants on the same track with complementary skills.",
@@ -64,7 +37,6 @@ export function registerTeamTools(server: McpServer, sql: Sql): void {
         .describe("Maximum number of match candidates to return"),
     },
     async ({ participant_email, max_results }) => {
-      // Look up the requester
       const requesterRows = await sql<{
         id: string;
         full_name: string;
@@ -89,7 +61,6 @@ export function registerTeamTools(server: McpServer, sql: Sql): void {
         (requester.challenges ?? []).map((s) => s.toLowerCase())
       );
 
-      // Fetch unassigned candidates on the same track
       const candidates = await sql<{
         id: string;
         full_name: string;
@@ -111,7 +82,6 @@ export function registerTeamTools(server: McpServer, sql: Sql): void {
         if (matches.length >= max_results) break;
 
         const candidateSkills = candidate.challenges ?? [];
-        // Complementary = candidate has at least one skill not in requester's set
         const hasComplementarySkill = candidateSkills.some(
           (s) => !requesterSkillSet.has(s.toLowerCase())
         );
@@ -137,8 +107,6 @@ export function registerTeamTools(server: McpServer, sql: Sql): void {
     }
   );
 
-  // ── Tool 2: confirm_team_formation ─────────────────────────────────────────
-
   server.tool(
     "confirm_team_formation",
     "Create a team, assign participants to it, and fire a Workato webhook.",
@@ -151,7 +119,6 @@ export function registerTeamTools(server: McpServer, sql: Sql): void {
         .describe("Email addresses of all team members"),
     },
     async ({ team_name, track, member_emails }) => {
-      // Look up all participants, including current team status
       const members = await sql<{
         id: string;
         email: string;
@@ -163,7 +130,6 @@ export function registerTeamTools(server: McpServer, sql: Sql): void {
         WHERE r.email = ANY(${member_emails})
       `;
 
-      // Verify all requested emails were found
       const foundEmails = new Set(members.map((m) => m.email));
       const missingEmails = member_emails.filter((e) => !foundEmails.has(e));
       if (missingEmails.length > 0) {
@@ -175,7 +141,6 @@ export function registerTeamTools(server: McpServer, sql: Sql): void {
         };
       }
 
-      // Verify none are already on a team
       const alreadyAssigned = members.filter((m) => m.team_id !== null);
       if (alreadyAssigned.length > 0) {
         return {
@@ -191,7 +156,6 @@ export function registerTeamTools(server: McpServer, sql: Sql): void {
 
       const memberIds = members.map((m) => m.id);
 
-      // Create the team row
       const teamRows = await sql<{ id: string; created_at: string }[]>`
         INSERT INTO teams (name, track, member_ids)
         VALUES (${team_name}, ${track}, ${memberIds})
@@ -206,7 +170,6 @@ export function registerTeamTools(server: McpServer, sql: Sql): void {
         };
       }
 
-      // Assign each participant via the team_members join table
       await sql`
         INSERT INTO team_members ${sql(
           memberIds.map((registrationId) => ({
@@ -216,14 +179,16 @@ export function registerTeamTools(server: McpServer, sql: Sql): void {
         )}
       `;
 
-      await fireTeamWebhook({
+      const payload: TeamWebhookPayload = {
         team_id: team.id,
         team_name,
         track,
         member_count: memberIds.length,
         member_emails,
         created_at: team.created_at,
-      });
+      };
+
+      await fireWorkatoWebhook("WORKATO_TEAM_WEBHOOK", payload, "confirm_team_formation");
 
       return {
         content: [

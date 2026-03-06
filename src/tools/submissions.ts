@@ -5,7 +5,33 @@ import { z } from "zod";
 const SubmissionStatus = z.enum(["draft", "submitted", "under_review", "scored"]);
 
 export function registerSubmissionTools(server: McpServer, sql: Sql): void {
-  // ── list_submissions ───────────────────────────────────────────────────────
+  server.tool(
+    "submit_project",
+    "Submit a hackathon project for a team.",
+    {
+      team_id: z.string().uuid().describe("Team UUID"),
+      title: z.string().min(1).describe("Project title"),
+      description: z.string().min(1).describe("Project description"),
+      repo_url: z.string().url().optional().describe("GitHub or repository URL"),
+      demo_url: z.string().url().optional().describe("Live demo URL"),
+      video_url: z.string().url().optional().describe("Demo video URL"),
+    },
+    async ({ team_id, title, description, repo_url, demo_url, video_url }) => {
+      const rows = await sql`
+        INSERT INTO submissions (team_id, title, description, repo_url, demo_url, video_url, status, submitted_at)
+        VALUES (
+          ${team_id}, ${title}, ${description},
+          ${repo_url ?? null}, ${demo_url ?? null}, ${video_url ?? null},
+          'submitted', now()
+        )
+        RETURNING *
+      `;
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(rows[0], null, 2) }],
+      };
+    }
+  );
 
   server.tool(
     "list_submissions",
@@ -33,8 +59,6 @@ export function registerSubmissionTools(server: McpServer, sql: Sql): void {
       };
     }
   );
-
-  // ── get_submission ─────────────────────────────────────────────────────────
 
   server.tool(
     "get_submission",
@@ -71,38 +95,6 @@ export function registerSubmissionTools(server: McpServer, sql: Sql): void {
     }
   );
 
-  // ── create_submission ──────────────────────────────────────────────────────
-
-  server.tool(
-    "create_submission",
-    "Create a new project submission for a team",
-    {
-      team_id: z.string().uuid().describe("Team UUID"),
-      title: z.string().min(1).describe("Project title"),
-      description: z.string().min(1).describe("Project description"),
-      repo_url: z.string().url().optional().describe("GitHub or repository URL"),
-      demo_url: z.string().url().optional().describe("Live demo URL"),
-      video_url: z.string().url().optional().describe("Demo video URL"),
-    },
-    async ({ team_id, title, description, repo_url, demo_url, video_url }) => {
-      const rows = await sql`
-        INSERT INTO submissions (team_id, title, description, repo_url, demo_url, video_url, status)
-        VALUES (
-          ${team_id}, ${title}, ${description},
-          ${repo_url ?? null}, ${demo_url ?? null}, ${video_url ?? null},
-          'draft'
-        )
-        RETURNING *
-      `;
-
-      return {
-        content: [{ type: "text", text: JSON.stringify(rows[0], null, 2) }],
-      };
-    }
-  );
-
-  // ── update_submission ──────────────────────────────────────────────────────
-
   server.tool(
     "update_submission",
     "Update an existing submission",
@@ -131,7 +123,6 @@ export function registerSubmissionTools(server: McpServer, sql: Sql): void {
         };
       }
 
-      // Append submitted_at = now() when transitioning to submitted
       const rows = status === "submitted"
         ? await sql`
             UPDATE submissions
@@ -158,46 +149,6 @@ export function registerSubmissionTools(server: McpServer, sql: Sql): void {
       };
     }
   );
-
-  // ── score_submission ───────────────────────────────────────────────────────
-
-  server.tool(
-    "score_submission",
-    "Record a score for a submission",
-    {
-      submission_id: z.string().uuid().describe("Submission UUID"),
-      judge_id: z.string().uuid().describe("Judge registration UUID"),
-      innovation: z.number().min(0).max(10).describe("Innovation score (0–10)"),
-      technical: z.number().min(0).max(10).describe("Technical execution score (0–10)"),
-      impact: z.number().min(0).max(10).describe("Business impact score (0–10)"),
-      presentation: z.number().min(0).max(10).describe("Presentation score (0–10)"),
-      notes: z.string().optional().describe("Judge's notes or feedback"),
-    },
-    async ({ submission_id, judge_id, innovation, technical, impact, presentation, notes }) => {
-      const total = innovation + technical + impact + presentation;
-
-      const rows = await sql`
-        INSERT INTO scores
-          (submission_id, judge_id, innovation, technical, impact, presentation, total, notes)
-        VALUES
-          (${submission_id}, ${judge_id}, ${innovation}, ${technical}, ${impact}, ${presentation}, ${total}, ${notes ?? null})
-        ON CONFLICT (submission_id, judge_id) DO UPDATE SET
-          innovation   = EXCLUDED.innovation,
-          technical    = EXCLUDED.technical,
-          impact       = EXCLUDED.impact,
-          presentation = EXCLUDED.presentation,
-          total        = EXCLUDED.total,
-          notes        = EXCLUDED.notes
-        RETURNING *
-      `;
-
-      return {
-        content: [{ type: "text", text: JSON.stringify(rows[0], null, 2) }],
-      };
-    }
-  );
-
-  // ── get_submission_scores ──────────────────────────────────────────────────
 
   server.tool(
     "get_submission_scores",
