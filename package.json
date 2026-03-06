@@ -2,17 +2,19 @@
   "name": "workato-hackathon-mcp",
   "version": "1.0.0",
   "description": "MCP server for Workato hackathon management",
+  "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --env-file=.env src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "seed:historic": "tsx --env-file=.env scripts/seed-historic.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.7.0",
-    "@supabase/supabase-js": "^2.47.0",
     "express": "^4.21.2",
+    "postgres": "^3.4.8",
     "zod": "^3.23.8"
   },
   "devDependencies": {

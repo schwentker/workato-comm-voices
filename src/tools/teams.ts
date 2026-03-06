@@ -1,202 +1,243 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { SupabaseClient } from "@supabase/supabase-js";
+import { type Sql } from "postgres";
 import { z } from "zod";
 
-export function registerTeamTools(
-  server: McpServer,
-  supabase: SupabaseClient
-): void {
-  server.tool(
-    "list_teams",
-    "List all hackathon teams",
-    {
-      limit: z.number().int().min(1).max(100).optional().describe("Max results to return (default 50)"),
-      offset: z.number().int().min(0).optional().describe("Pagination offset"),
-    },
-    async ({ limit = 50, offset = 0 }) => {
-      const { data, error } = await supabase
-        .from("teams")
-        .select("*, team_members(participant_id, participants(name, email))")
-        .range(offset, offset + limit - 1)
-        .order("created_at", { ascending: false });
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-      if (error) {
+interface MatchCandidate {
+  name: string;
+  email: string;
+  skills: string[];
+  track_preference: string;
+}
+
+interface TeamWebhookPayload {
+  team_id: string;
+  team_name: string;
+  track: string;
+  member_count: number;
+  member_emails: string[];
+  created_at: string;
+}
+
+// ── Webhook helper ────────────────────────────────────────────────────────────
+
+async function fireTeamWebhook(payload: TeamWebhookPayload): Promise<void> {
+  const webhookUrl = process.env["WORKATO_TEAM_WEBHOOK"];
+  if (!webhookUrl) return;
+
+  try {
+    const res = await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      console.error(
+        `[confirm_team_formation] Webhook returned ${res.status}: ${await res.text()}`
+      );
+    }
+  } catch (err) {
+    // Non-fatal: team already created — just log
+    console.error("[confirm_team_formation] Webhook delivery failed:", err);
+  }
+}
+
+// ── Tool registration ─────────────────────────────────────────────────────────
+
+export function registerTeamTools(server: McpServer, sql: Sql): void {
+  // ── Tool 1: match_teams_by_skills ──────────────────────────────────────────
+
+  server.tool(
+    "match_teams_by_skills",
+    "Find unassigned participants on the same track with complementary skills.",
+    {
+      participant_email: z
+        .string()
+        .email()
+        .describe("Email of the participant looking for teammates"),
+      max_results: z
+        .number()
+        .int()
+        .min(1)
+        .default(3)
+        .describe("Maximum number of match candidates to return"),
+    },
+    async ({ participant_email, max_results }) => {
+      // Look up the requester
+      const requesterRows = await sql<{
+        id: string;
+        full_name: string;
+        email: string;
+        challenges: string[];
+        track: string;
+      }[]>`
+        SELECT id, full_name, email, challenges, track
+        FROM registrations
+        WHERE email = ${participant_email}
+      `;
+
+      if (requesterRows.length === 0) {
         return {
-          content: [{ type: "text", text: `Error fetching teams: ${error.message}` }],
+          content: [{ type: "text", text: `Participant not found: ${participant_email}` }],
           isError: true,
         };
       }
 
+      const requester = requesterRows[0]!;
+      const requesterSkillSet = new Set(
+        (requester.challenges ?? []).map((s) => s.toLowerCase())
+      );
+
+      // Fetch unassigned candidates on the same track
+      const candidates = await sql<{
+        id: string;
+        full_name: string;
+        email: string;
+        challenges: string[];
+        track: string;
+      }[]>`
+        SELECT r.id, r.full_name, r.email, r.challenges, r.track
+        FROM registrations r
+        LEFT JOIN team_members tm ON tm.registration_id = r.id
+        WHERE r.track = ${requester.track}
+          AND r.email != ${participant_email}
+          AND tm.team_id IS NULL
+      `;
+
+      const matches: MatchCandidate[] = [];
+
+      for (const candidate of candidates) {
+        if (matches.length >= max_results) break;
+
+        const candidateSkills = candidate.challenges ?? [];
+        // Complementary = candidate has at least one skill not in requester's set
+        const hasComplementarySkill = candidateSkills.some(
+          (s) => !requesterSkillSet.has(s.toLowerCase())
+        );
+        if (!hasComplementarySkill) continue;
+
+        matches.push({
+          name: candidate.full_name,
+          email: candidate.email,
+          skills: candidateSkills,
+          track_preference: candidate.track,
+        });
+      }
+
+      if (matches.length === 0) {
+        return {
+          content: [{ type: "text", text: "No team matches found on this track yet" }],
+        };
+      }
+
       return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(matches, null, 2) }],
       };
     }
   );
 
-  server.tool(
-    "get_team",
-    "Get a single team by ID with its members",
-    {
-      id: z.string().uuid().describe("Team UUID"),
-    },
-    async ({ id }) => {
-      const { data, error } = await supabase
-        .from("teams")
-        .select("*, team_members(participant_id, participants(name, email))")
-        .eq("id", id)
-        .single();
+  // ── Tool 2: confirm_team_formation ─────────────────────────────────────────
 
-      if (error) {
+  server.tool(
+    "confirm_team_formation",
+    "Create a team, assign participants to it, and fire a Workato webhook.",
+    {
+      team_name: z.string().min(1).describe("Name of the team"),
+      track: z.string().min(1).describe("Track the team is competing in"),
+      member_emails: z
+        .array(z.string().email())
+        .min(1)
+        .describe("Email addresses of all team members"),
+    },
+    async ({ team_name, track, member_emails }) => {
+      // Look up all participants, including current team status
+      const members = await sql<{
+        id: string;
+        email: string;
+        team_id: string | null;
+      }[]>`
+        SELECT r.id, r.email, tm.team_id
+        FROM registrations r
+        LEFT JOIN team_members tm ON tm.registration_id = r.id
+        WHERE r.email = ANY(${member_emails})
+      `;
+
+      // Verify all requested emails were found
+      const foundEmails = new Set(members.map((m) => m.email));
+      const missingEmails = member_emails.filter((e) => !foundEmails.has(e));
+      if (missingEmails.length > 0) {
         return {
-          content: [{ type: "text", text: `Error fetching team: ${error.message}` }],
+          content: [
+            { type: "text", text: `Participant(s) not found: ${missingEmails.join(", ")}` },
+          ],
           isError: true,
         };
       }
 
-      return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-      };
-    }
-  );
-
-  server.tool(
-    "create_team",
-    "Create a new hackathon team",
-    {
-      name: z.string().min(1).describe("Team name"),
-      description: z.string().optional().describe("Team description or project idea"),
-      max_members: z.number().int().min(1).max(10).optional().describe("Maximum team size (default 4)"),
-    },
-    async ({ name, description, max_members = 4 }) => {
-      const { data, error } = await supabase
-        .from("teams")
-        .insert({ name, description, max_members })
-        .select()
-        .single();
-
-      if (error) {
+      // Verify none are already on a team
+      const alreadyAssigned = members.filter((m) => m.team_id !== null);
+      if (alreadyAssigned.length > 0) {
         return {
-          content: [{ type: "text", text: `Error creating team: ${error.message}` }],
+          content: [
+            {
+              type: "text",
+              text: `Participant(s) already on a team: ${alreadyAssigned.map((m) => m.email).join(", ")}`,
+            },
+          ],
           isError: true,
         };
       }
 
-      return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-      };
-    }
-  );
+      const memberIds = members.map((m) => m.id);
 
-  server.tool(
-    "update_team",
-    "Update an existing team's information",
-    {
-      id: z.string().uuid().describe("Team UUID"),
-      name: z.string().min(1).optional().describe("Team name"),
-      description: z.string().optional().describe("Team description or project idea"),
-      max_members: z.number().int().min(1).max(10).optional().describe("Maximum team size"),
-    },
-    async ({ id, name, description, max_members }) => {
-      const updates: Record<string, string | number> = {};
-      if (name !== undefined) updates["name"] = name;
-      if (description !== undefined) updates["description"] = description;
-      if (max_members !== undefined) updates["max_members"] = max_members;
+      // Create the team row
+      const teamRows = await sql<{ id: string; created_at: string }[]>`
+        INSERT INTO teams (name, track, member_ids)
+        VALUES (${team_name}, ${track}, ${memberIds})
+        RETURNING id, created_at
+      `;
 
-      const { data, error } = await supabase
-        .from("teams")
-        .update(updates)
-        .eq("id", id)
-        .select()
-        .single();
-
-      if (error) {
+      const team = teamRows[0];
+      if (!team) {
         return {
-          content: [{ type: "text", text: `Error updating team: ${error.message}` }],
+          content: [{ type: "text", text: "Error creating team: no data returned" }],
           isError: true,
         };
       }
 
-      return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-      };
-    }
-  );
+      // Assign each participant via the team_members join table
+      await sql`
+        INSERT INTO team_members ${sql(
+          memberIds.map((registrationId) => ({
+            registration_id: registrationId,
+            team_id: team.id,
+          }))
+        )}
+      `;
 
-  server.tool(
-    "delete_team",
-    "Delete a hackathon team",
-    {
-      id: z.string().uuid().describe("Team UUID"),
-    },
-    async ({ id }) => {
-      const { error } = await supabase
-        .from("teams")
-        .delete()
-        .eq("id", id);
-
-      if (error) {
-        return {
-          content: [{ type: "text", text: `Error deleting team: ${error.message}` }],
-          isError: true,
-        };
-      }
+      await fireTeamWebhook({
+        team_id: team.id,
+        team_name,
+        track,
+        member_count: memberIds.length,
+        member_emails,
+        created_at: team.created_at,
+      });
 
       return {
-        content: [{ type: "text", text: `Team ${id} deleted successfully` }],
-      };
-    }
-  );
-
-  server.tool(
-    "add_team_member",
-    "Add a participant to a team",
-    {
-      team_id: z.string().uuid().describe("Team UUID"),
-      participant_id: z.string().uuid().describe("Participant UUID"),
-    },
-    async ({ team_id, participant_id }) => {
-      const { data, error } = await supabase
-        .from("team_members")
-        .insert({ team_id, participant_id })
-        .select()
-        .single();
-
-      if (error) {
-        return {
-          content: [{ type: "text", text: `Error adding team member: ${error.message}` }],
-          isError: true,
-        };
-      }
-
-      return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-      };
-    }
-  );
-
-  server.tool(
-    "remove_team_member",
-    "Remove a participant from a team",
-    {
-      team_id: z.string().uuid().describe("Team UUID"),
-      participant_id: z.string().uuid().describe("Participant UUID"),
-    },
-    async ({ team_id, participant_id }) => {
-      const { error } = await supabase
-        .from("team_members")
-        .delete()
-        .eq("team_id", team_id)
-        .eq("participant_id", participant_id);
-
-      if (error) {
-        return {
-          content: [{ type: "text", text: `Error removing team member: ${error.message}` }],
-          isError: true,
-        };
-      }
-
-      return {
-        content: [{ type: "text", text: `Participant ${participant_id} removed from team ${team_id}` }],
+        content: [
+          {
+            type: "text",
+            text: [
+              "Team formed successfully.",
+              `Team ID:      ${team.id}`,
+              `Team name:    ${team_name}`,
+              `Track:        ${track}`,
+              `Member count: ${memberIds.length}`,
+            ].join("\n"),
+          },
+        ],
       };
     }
   );

@@ -1,9 +1,9 @@
 import express, { Request, Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import { createClient } from "@supabase/supabase-js";
+import postgres from "postgres";
 
-import { registerParticipantTools } from "./tools/participants.js";
+import { registerTools as registerParticipantTools } from "./tools/participants.js";
 import { registerTeamTools } from "./tools/teams.js";
 import { registerSubmissionTools } from "./tools/submissions.js";
 import { registerAwardTools } from "./tools/awards.js";
@@ -11,20 +11,16 @@ import { registerAwardTools } from "./tools/awards.js";
 // ── Environment ───────────────────────────────────────────────────────────────
 
 const PORT = parseInt(process.env["PORT"] ?? "3000", 10);
+const DATABASE_URL = process.env["DATABASE_URL"];
 
-const SUPABASE_URL = process.env["SUPABASE_URL"];
-const SUPABASE_SERVICE_KEY = process.env["SUPABASE_SERVICE_KEY"];
-
-if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-  console.error("Missing required env vars: SUPABASE_URL and SUPABASE_SERVICE_KEY");
+if (!DATABASE_URL) {
+  console.error("Missing required env var: DATABASE_URL");
   process.exit(1);
 }
 
-// ── Supabase ──────────────────────────────────────────────────────────────────
+// ── Postgres (Neon) ───────────────────────────────────────────────────────────
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-  auth: { persistSession: false },
-});
+const db = postgres(DATABASE_URL, { ssl: "require" });
 
 // ── MCP Server ────────────────────────────────────────────────────────────────
 
@@ -33,10 +29,10 @@ const mcp = new McpServer({
   version: "1.0.0",
 });
 
-registerParticipantTools(mcp, supabase);
-registerTeamTools(mcp, supabase);
-registerSubmissionTools(mcp, supabase);
-registerAwardTools(mcp, supabase);
+registerParticipantTools(mcp, db);
+registerTeamTools(mcp, db);
+registerSubmissionTools(mcp, db);
+registerAwardTools(mcp, db);
 
 // ── Express ───────────────────────────────────────────────────────────────────
 
@@ -85,7 +81,6 @@ app.post("/messages", async (req: Request, res: Response) => {
 // ── Startup ───────────────────────────────────────────────────────────────────
 
 const server = app.listen(PORT, () => {
-  // Count registered tools via the internal tool registry
   const toolCount = (mcp as unknown as { _registeredTools: Record<string, unknown> })._registeredTools
     ? Object.keys((mcp as unknown as { _registeredTools: Record<string, unknown> })._registeredTools).length
     : "unknown";
@@ -103,6 +98,7 @@ process.on("SIGTERM", () => {
   console.log("[workato-hackathon-mcp] SIGTERM received – shutting down gracefully");
   server.close(() => {
     console.log("[workato-hackathon-mcp] HTTP server closed");
+    void db.end();
     process.exit(0);
   });
 });
