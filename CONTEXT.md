@@ -3,6 +3,7 @@
 ## Status: ✅ DEPLOYED
 - **Live URL:** https://workato-hackathon-mcp.fly.dev
 - **Health:** https://workato-hackathon-mcp.fly.dev/health → `{"status":"ok"}`
+- **Community Posts:** https://workato-hackathon-mcp.fly.dev/community-posts
 - **MCP SSE:** https://workato-hackathon-mcp.fly.dev/sse
 - **DB:** Neon `enterprise-hack-hub / neondb` — fully seeded
 
@@ -10,6 +11,8 @@
 | File | Change |
 |------|--------|
 | `src/index.ts` | Supabase → postgres.js; `DATABASE_URL` env var |
+| `src/data/community-posts.ts` | **New** — hardcoded community posts dataset shared by HTTP + MCP |
+| `src/tools/community-posts.ts` | **New** — `get_community_posts` tool fetches `/community-posts` and filters results |
 | `src/tools/participants.ts` | Rewritten with raw SQL |
 | `src/tools/teams.ts` | Rewritten with raw SQL (was a stub) |
 | `src/tools/submissions.ts` | Rewritten with raw SQL |
@@ -39,6 +42,7 @@ Guard: skips re-seed if `teams WHERE event_id IS NOT NULL` has rows.
 | `teams.ts` | `match_teams_by_skills`, `confirm_team_formation` |
 | `submissions.ts` | `list_submissions`, `get_submission`, `create_submission`, `update_submission`, `score_submission`, `get_submission_scores` |
 | `awards.ts` | `list_awards`, `get_award`, `create_award`, `assign_award`, `revoke_award`, `get_leaderboard` |
+| `community-posts.ts` | `get_community_posts` |
 
 ## Schema Notes (Neon vs. Code)
 Neon's pre-existing tables use different column names. Seeder adapted; tools may need updating:
