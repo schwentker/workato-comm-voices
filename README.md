@@ -23,11 +23,51 @@ The server aggregates posts from live sources (Reddit r/workato) and community c
 
 ## Why this matters for Workato
 
-Workato's developer community spans 400,000+ customers across the US, Europe, India, Japan, and Brazil. The tools to *understand* that community — to surface what builders are struggling with, requesting, and celebrating — shouldn't require a data team or a dashboard refresh.
+Workato's developer community has grown to 500,000+
+builders across the United States, Australia, United
+Kingdom, India, Singapore, Spain, Philippines, Japan,
+Israel, and Mexico. These builders are not waiting to
+be managed. They are already teaching each other,
+filing requests, and shipping integrations faster than
+any internal team can track.
 
-This project makes community intelligence conversational.
+The tools to understand that community — to surface
+what builders are struggling with, requesting, and
+celebrating — should not require a data team, a
+dashboard refresh, or a ticket to analytics.
 
-It also directly addresses the platform question Workato is navigating: **Systematic vs. Slack vs. Discord**. Rather than forcing a migration, this architecture aggregates all three. The platform decision becomes a routing question, not a migration crisis.
+This project makes community intelligence
+conversational.
+
+It started the way the best community tools always do:
+a community leader noticed that signal was getting
+lost. Questions went unanswered across three platforms.
+Feature requests lived in Discord threads that product
+never saw. Regional voices from Singapore and Mexico
+and Israel were drowned out by the loudest channels.
+
+So they built a fix.
+
+Six months in, the pattern has become clear. Community
+managers start their day by asking a question instead
+of opening a dashboard. Regional leads in APAC surface
+insights that used to take a week to compile. Feature
+requests from the Philippines and Spain are reaching
+product within hours of being posted. The platforms
+themselves — wherever builders happen to gather — feed
+into a single stream of signal that anyone on the team
+can query in plain language.
+
+The architecture is intentionally simple: aggregate
+first, decide later. Platform preferences vary by
+region and role. Rather than forcing consolidation,
+the system listens everywhere and lets the insights
+travel. What used to be a logistics problem became
+an intelligence advantage.
+
+This is what community operations look like when
+you apply the same orchestration thinking to people
+that you apply to workflows.
 
 ---
 
@@ -115,12 +155,6 @@ Requires Workato paid plan for API Platform feature.
 See `docs/workato-genies/community-intelligence-genie.md`
 Connect MCP server at:
 https://workato-comm-voices.fly.dev/sse
-
-## Built For
-
-This project was built as a demonstration of community intelligence infrastructure for the Workato Director, Global Developer Communities role. It shows what developer community operations look like when you treat community signals as structured, queryable, actionable data -- the same way Workato treats enterprise workflows.
-
----
 
 ## Local setup
 
