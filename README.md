@@ -1,4 +1,4 @@
-# workato-comm-voices 
+# Workato Community Voices
 
 **A community intelligence layer for Workato's global developer ecosystem — built with MCP, Neon, and Fly.io.**
 
