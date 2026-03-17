@@ -12,6 +12,7 @@ import { registerAwardTools } from "./tools/awards.js";
 import { registerCommunityTools } from "./tools/community-posts.js";
 
 const PORT = parseInt(process.env["PORT"] ?? "3000", 10);
+const HOST = process.env["HOST"] ?? "0.0.0.0";
 const WORKATO_API_TOKEN = process.env["WORKATO_API_TOKEN"];
 const COMM_VOICES_API_TOKEN = process.env["COMM_VOICES_API_TOKEN"];
 const db = getNeonClient();
@@ -98,11 +99,20 @@ app.get("/sse", async (_req: Request, res: Response) => {
   }
 
   const transport = new SSEServerTransport("/messages", res);
-  transports.set(transport.sessionId, transport);
+  const sessionId = transport.sessionId;
 
-  res.on("close", () => {
-    transports.delete(transport.sessionId);
-  });
+  console.log("STORE SESSION", sessionId);
+  transports.set(sessionId, transport);
+  console.log("MAP AFTER STORE", Array.from(transports.keys()));
+
+  transport.onclose = () => {
+    console.log("SESSION CLOSED", sessionId);
+    transports.delete(sessionId);
+  };
+
+  transport.onerror = (error) => {
+    console.error(`[mcp] SSE transport error for session ${sessionId}`, error);
+  };
 
   await mcp.connect(transport);
 });
@@ -115,22 +125,45 @@ app.post("/messages", async (req: Request, res: Response) => {
     return;
   }
 
+  console.log("LOOKUP SESSION", sessionId);
+  console.log("MAP BEFORE LOOKUP", Array.from(transports.keys()));
   const transport = transports.get(sessionId);
 
   if (!transport) {
-    res.status(404).json({ error: `No active session for sessionId: ${sessionId}` });
+    res.status(400).json({ error: `No active session for sessionId: ${sessionId}` });
     return;
   }
 
-  await transport.handlePostMessage(req, res);
+  console.log("MESSAGE RECEIVED", sessionId);
+
+  const message = req.body as { method?: string; params?: { name?: string } } | undefined;
+  const toolName = message?.method === "tools/call" ? message.params?.name : undefined;
+
+  if (toolName) {
+    console.log(`[mcp] Tool invoked: ${toolName}`);
+  }
+
+  if (!message) {
+    res.status(400).json({ error: "Missing JSON-RPC message body" });
+    return;
+  }
+
+  try {
+    await transport.handleMessage(message);
+    console.log(`[mcp] Response sent for session ${sessionId}`);
+    res.status(200).end();
+  } catch (error) {
+    console.error(`[mcp] Failed to handle message for session ${sessionId}`, error);
+    res.status(400).json({ error: "Invalid MCP message" });
+  }
 });
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, HOST, () => {
   const toolCount = (mcp as unknown as { _registeredTools: Record<string, unknown> })._registeredTools
     ? Object.keys((mcp as unknown as { _registeredTools: Record<string, unknown> })._registeredTools).length
     : "unknown";
 
-  console.log(`[workato-comm-voices] Listening on port ${PORT}`);
+  console.log(`[workato-comm-voices] Listening on ${HOST}:${PORT}`);
   console.log(`[workato-comm-voices] Registered tools: ${toolCount}`);
   console.log(`[workato-comm-voices] SSE endpoint:  GET  http://localhost:${PORT}/sse`);
   console.log(`[workato-comm-voices] Message endpoint: POST http://localhost:${PORT}/messages`);
