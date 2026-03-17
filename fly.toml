@@ -1,4 +1,4 @@
-app = "workato-hackathon-mcp"
+app = "workato-comm-voices"
 primary_region = "sjc"
 
 [build]
