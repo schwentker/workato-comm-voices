@@ -112,6 +112,33 @@ https://workato-comm-voices.fly.dev/community-posts
 
 ---
 
+## Live Demo
+
+https://sandboxlabs.ai/workato-comm-voices
+
+## Screenshots
+
+Placeholder: `docs/screenshots/` -- add after deploy
+
+## Workato Integration
+
+### Recipe Setup
+
+See `docs/workato-recipes/feature-request-router.md`
+Requires Workato paid plan for API Platform feature.
+
+### Genie Setup
+
+See `docs/workato-genies/community-intelligence-genie.md`
+Connect MCP server at:
+https://workato-comm-voices.fly.dev/sse
+
+## Built For
+
+This project was built as a demonstration of community intelligence infrastructure for the Workato Director, Global Developer Communities role. It shows what developer community operations look like when you treat community signals as structured, queryable, actionable data -- the same way Workato treats enterprise workflows.
+
+---
+
 ## Local setup
 
 ```bash
