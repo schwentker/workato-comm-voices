@@ -3,7 +3,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 
 import { closeNeonClient, getNeonClient } from "./db/neon.js";
-import { COMMUNITY_PLATFORMS, COMMUNITY_REGIONS, COMMUNITY_TYPES } from "./data/community-posts.js";
+import {
+  COMMUNITY_PLATFORMS,
+  COMMUNITY_REGIONS,
+  COMMUNITY_TYPES,
+} from "./data/community-posts.js";
 import { getCommunityPosts } from "./sources/community-posts.js";
 import { registerTools as registerParticipantTools } from "./tools/participants.js";
 import { registerTeamTools } from "./tools/teams.js";
@@ -12,6 +16,7 @@ import { registerAwardTools } from "./tools/awards.js";
 import { registerCommunityTools } from "./tools/community-posts.js";
 
 const PORT = parseInt(process.env["PORT"] ?? "3000", 10);
+const HOST = process.env["HOST"] ?? "0.0.0.0";
 const WORKATO_API_TOKEN = process.env["WORKATO_API_TOKEN"];
 const COMM_VOICES_API_TOKEN = process.env["COMM_VOICES_API_TOKEN"];
 const db = getNeonClient();
@@ -50,24 +55,43 @@ function requireBearerAuth(req: Request, res: Response): boolean {
 
 function getAllowedQueryValue<T extends readonly string[]>(
   value: unknown,
-  allowedValues: T
+  allowedValues: T,
 ): T[number] {
-  return typeof value === "string" && allowedValues.includes(value) ? value as T[number] : "all" as T[number];
+  return typeof value === "string" && allowedValues.includes(value)
+    ? (value as T[number])
+    : ("all" as T[number]);
 }
 
 app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-app.get("/community-posts", async (req: Request, res: Response) => {
-  if (!requireBearerAuth(req, res)) {
+app.use("/community-posts", async (req: Request, res: Response) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    res.end();
     return;
   }
 
-  const platform = getAllowedQueryValue(req.query["platform"], COMMUNITY_PLATFORMS);
+  if (req.method !== "GET") {
+    res.status(405).json({ error: "Method Not Allowed" });
+    return;
+  }
+
+  const platform = getAllowedQueryValue(
+    req.query["platform"],
+    COMMUNITY_PLATFORMS,
+  );
   const region = getAllowedQueryValue(req.query["region"], COMMUNITY_REGIONS);
   const type = getAllowedQueryValue(req.query["type"], COMMUNITY_TYPES);
-  const limitParam = typeof req.query["limit"] === "string" ? Number.parseInt(req.query["limit"], 10) : undefined;
+  const limitParam =
+    typeof req.query["limit"] === "string"
+      ? Number.parseInt(req.query["limit"], 10)
+      : undefined;
 
   const posts = await getCommunityPosts({
     platform,
@@ -87,11 +111,20 @@ app.get("/sse", async (_req: Request, res: Response) => {
   }
 
   const transport = new SSEServerTransport("/messages", res);
-  transports.set(transport.sessionId, transport);
+  const sessionId = transport.sessionId;
 
-  res.on("close", () => {
-    transports.delete(transport.sessionId);
-  });
+  console.log("STORE SESSION", sessionId);
+  transports.set(sessionId, transport);
+  console.log("MAP AFTER STORE", Array.from(transports.keys()));
+
+  transport.onclose = () => {
+    console.log("SESSION CLOSED", sessionId);
+    transports.delete(sessionId);
+  };
+
+  transport.onerror = (error) => {
+    console.error(`[mcp] SSE transport error for session ${sessionId}`, error);
+  };
 
   await mcp.connect(transport);
 });
@@ -104,31 +137,76 @@ app.post("/messages", async (req: Request, res: Response) => {
     return;
   }
 
+  console.log("LOOKUP SESSION", sessionId);
+  console.log("MAP BEFORE LOOKUP", Array.from(transports.keys()));
   const transport = transports.get(sessionId);
 
   if (!transport) {
-    res.status(404).json({ error: `No active session for sessionId: ${sessionId}` });
+    res
+      .status(400)
+      .json({ error: `No active session for sessionId: ${sessionId}` });
     return;
   }
 
-  await transport.handlePostMessage(req, res);
+  console.log("MESSAGE RECEIVED", sessionId);
+
+  const message = req.body as
+    | { method?: string; params?: { name?: string } }
+    | undefined;
+  const toolName =
+    message?.method === "tools/call" ? message.params?.name : undefined;
+
+  if (toolName) {
+    console.log(`[mcp] Tool invoked: ${toolName}`);
+  }
+
+  if (!message) {
+    res.status(400).json({ error: "Missing JSON-RPC message body" });
+    return;
+  }
+
+  try {
+    await transport.handleMessage(message);
+    console.log(`[mcp] Response sent for session ${sessionId}`);
+    res.status(200).end();
+  } catch (error) {
+    console.error(
+      `[mcp] Failed to handle message for session ${sessionId}`,
+      error,
+    );
+    res.status(400).json({ error: "Invalid MCP message" });
+  }
 });
 
-const server = app.listen(PORT, () => {
-  const toolCount = (mcp as unknown as { _registeredTools: Record<string, unknown> })._registeredTools
-    ? Object.keys((mcp as unknown as { _registeredTools: Record<string, unknown> })._registeredTools).length
+const server = app.listen(PORT, HOST, () => {
+  const toolCount = (
+    mcp as unknown as { _registeredTools: Record<string, unknown> }
+  )._registeredTools
+    ? Object.keys(
+        (mcp as unknown as { _registeredTools: Record<string, unknown> })
+          ._registeredTools,
+      ).length
     : "unknown";
 
-  console.log(`[workato-comm-voices] Listening on port ${PORT}`);
+  console.log(`[workato-comm-voices] Listening on ${HOST}:${PORT}`);
   console.log(`[workato-comm-voices] Registered tools: ${toolCount}`);
-  console.log(`[workato-comm-voices] SSE endpoint:  GET  http://localhost:${PORT}/sse`);
-  console.log(`[workato-comm-voices] Message endpoint: POST http://localhost:${PORT}/messages`);
-  console.log(`[workato-comm-voices] Health endpoint:  GET  http://localhost:${PORT}/health`);
-  console.log(`[workato-comm-voices] Community endpoint: GET  http://localhost:${PORT}/community-posts`);
+  console.log(
+    `[workato-comm-voices] SSE endpoint:  GET  http://localhost:${PORT}/sse`,
+  );
+  console.log(
+    `[workato-comm-voices] Message endpoint: POST http://localhost:${PORT}/messages`,
+  );
+  console.log(
+    `[workato-comm-voices] Health endpoint:  GET  http://localhost:${PORT}/health`,
+  );
+  console.log(
+    `[workato-comm-voices] Community endpoint: GET  http://localhost:${PORT}/community-posts`,
+  );
 });
-
 process.on("SIGTERM", () => {
-  console.log("[workato-comm-voices] SIGTERM received - shutting down gracefully");
+  console.log(
+    "[workato-comm-voices] SIGTERM received - shutting down gracefully",
+  );
   server.close(() => {
     console.log("[workato-comm-voices] HTTP server closed");
     void closeNeonClient();

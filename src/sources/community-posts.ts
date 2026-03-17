@@ -19,29 +19,8 @@ export interface CommunityPostFilters {
   limit?: number;
 }
 
-const SYNTHETIC_REDDIT_POSTS: CommunityPost[] = [
-  {
-    id: "r001",
-    platform: "reddit",
-    author: "workflow_builder42",
-    region: "unknown",
-    content: "Anyone using Workato with Reddit lead intake workflows?",
-    type: "question",
-    timestamp: "2026-03-14T05:10:00Z",
-  },
-  {
-    id: "r002",
-    platform: "reddit",
-    author: "ops_automator",
-    region: "unknown",
-    content: "Shared our first Workato deployment checklist with the team",
-    type: "announcement",
-    timestamp: "2026-03-13T15:45:00Z",
-  },
-];
-
 function withSource(posts: CommunityPost[], source: string): CommunityPostResult[] {
-  return posts.map((post) => ({ ...post, source }));
+  return posts.map((post) => ({ ...post, source: post.source ?? source }));
 }
 
 export async function getCommunityPosts({
@@ -51,13 +30,13 @@ export async function getCommunityPosts({
   limit,
 }: CommunityPostFilters = {}): Promise<CommunityPostResult[]> {
   const [redditPosts, systematicPosts] = await Promise.all([
-    fetchRedditPosts().catch(() => SYNTHETIC_REDDIT_POSTS),
+    fetchRedditPosts(),
     fetchSystematicPosts().catch(() => []),
   ]);
 
   const mergedPosts = [
     ...withSource(COMMUNITY_POSTS, "synthetic"),
-    ...withSource(redditPosts, redditPosts === SYNTHETIC_REDDIT_POSTS ? "synthetic" : "reddit"),
+    ...withSource(redditPosts, "reddit_live"),
     ...withSource(systematicPosts, "systematic"),
   ]
     .filter((post) => {

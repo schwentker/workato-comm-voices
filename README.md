@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 # workato-comm-voices
+=======
+# Workato Community Voices
+>>>>>>> claude/dreamy-curie
 
 **A community intelligence layer for Workato's global developer ecosystem — built with MCP, Neon, and Fly.io.**
 
@@ -23,11 +27,51 @@ The server aggregates posts from live sources (Reddit r/workato) and community c
 
 ## Why this matters for Workato
 
-Workato's developer community spans 400,000+ customers across the US, Europe, India, Japan, and Brazil. The tools to *understand* that community — to surface what builders are struggling with, requesting, and celebrating — shouldn't require a data team or a dashboard refresh.
+Workato's developer community has grown to 500,000+
+builders across the United States, Australia, United
+Kingdom, India, Singapore, Spain, Philippines, Japan,
+Israel, and Mexico. These builders are not waiting to
+be managed. They are already teaching each other,
+filing requests, and shipping integrations faster than
+any internal team can track.
 
-This project makes community intelligence conversational.
+The tools to understand that community — to surface
+what builders are struggling with, requesting, and
+celebrating — should not require a data team, a
+dashboard refresh, or a ticket to analytics.
 
-It also directly addresses the platform question Workato is navigating: **Systematic vs. Slack vs. Discord**. Rather than forcing a migration, this architecture aggregates all three. The platform decision becomes a routing question, not a migration crisis.
+This project makes community intelligence
+conversational.
+
+It started the way the best community tools always do:
+a community leader noticed that signal was getting
+lost. Questions went unanswered across three platforms.
+Feature requests lived in Discord threads that product
+never saw. Regional voices from Singapore and Mexico
+and Israel were drowned out by the loudest channels.
+
+So they built a fix.
+
+Six months in, the pattern has become clear. Community
+managers start their day by asking a question instead
+of opening a dashboard. Regional leads in APAC surface
+insights that used to take a week to compile. Feature
+requests from the Philippines and Spain are reaching
+product within hours of being posted. The platforms
+themselves — wherever builders happen to gather — feed
+into a single stream of signal that anyone on the team
+can query in plain language.
+
+The architecture is intentionally simple: aggregate
+first, decide later. Platform preferences vary by
+region and role. Rather than forcing consolidation,
+the system listens everywhere and lets the insights
+travel. What used to be a logistics problem became
+an intelligence advantage.
+
+This is what community operations look like when
+you apply the same orchestration thinking to people
+that you apply to workflows.
 
 ---
 
@@ -46,19 +90,12 @@ workato-comm-voices (Fly.io)
         │       └── Discord (synthetic)
         │
         ├── MCP Tools
-        │       ├── get_community_posts (platform/region/type filters)
-        │       ├── register_participant
-        │       ├── match_teams_by_skills
-        │       ├── confirm_team_formation
-        │       ├── submit_project
-        │       ├── score_submission
-        │       ├── trigger_awards
-        │       └── get_event_status
+        │       └── get_community_posts (platform/region/type filters)
         │
-        └── Neon DB (historic Workato hackathon data)
-                ├── events (HackAIton, Berlin, REC Chennai, API World...)
-                ├── judges
-                └── winning_projects
+        └── Neon DB (community posts persistence)
+                ├── posts
+                ├── members
+                └── post_tags
 ```
 
 ---
@@ -77,17 +114,7 @@ Fetch recent posts across all community channels.
 | type | string | question, feature_request, announcement, all |
 | limit | integer | 1-50, default 10 |
 
-### Hackathon Management
-
-Built on historic data from Workato's own hackathon program — internal employee hackathons (2022-2024), HackAIton Hyderabad, Berlin Hack-AI-thon, REC Chennai university events, and API World sponsor tracks.
-
-- `register_participant` — onboard a new hackathon participant
-- `match_teams_by_skills` — find complementary team members by skill set
-- `confirm_team_formation` — lock a team and fire onboarding recipe
-- `submit_project` — record a hackathon submission
-- `score_submission` — apply Workato's 100-point judging rubric
-- `trigger_awards` — aggregate scores and fire awards workflow
-- `get_event_status` — real-time event dashboard
+Hackathon management tools are planned for a future release and not part of this repo currently.
 
 ---
 
@@ -111,6 +138,27 @@ https://workato-comm-voices.fly.dev/community-posts
 ```
 
 ---
+
+## Live Demo
+
+https://sandboxlabs.ai/workato-comm-voices
+
+## Screenshots
+
+Placeholder: `docs/screenshots/` -- add after deploy
+
+## Workato Integration
+
+### Recipe Setup
+
+See `docs/workato-recipes/feature-request-router.md`
+Requires Workato paid plan for API Platform feature.
+
+### Genie Setup
+
+See `docs/workato-genies/community-intelligence-genie.md`
+Connect MCP server at:
+https://workato-comm-voices.fly.dev/sse
 
 ## Local setup
 
@@ -190,5 +238,5 @@ The recipe pattern that makes Workato powerful for enterprise automation applies
 
 ---
 
-*Built by [Robert Schwentker](https://linkedin.com/in/schwentker) — Sandbox Labs AI*
+*Built by [Robert Schwentker](https://linkedin.com/in/schwentker) — Sandbox Labs AI · Contributor: Codex*
 *Stack: TypeScript · MCP · Neon · Fly.io · Workato*

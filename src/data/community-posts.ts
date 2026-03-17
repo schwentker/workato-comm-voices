@@ -1,24 +1,37 @@
-export const COMMUNITY_PLATFORMS = ["systematic", "discord", "reddit", "all"] as const;
+export const COMMUNITY_PLATFORMS = ["systematic", "discord", "slack", "reddit", "all"] as const;
 export const COMMUNITY_REGIONS = ["india", "europe", "us", "japan", "brazil", "unknown", "all"] as const;
-export const COMMUNITY_TYPES = ["question", "feature_request", "announcement", "all"] as const;
+export const COMMUNITY_TYPES = [
+  "question",
+  "feature_request",
+  "integration_pain",
+  "discussion",
+  "announcement",
+  "all",
+] as const;
 
 export type CommunityPlatform = Exclude<(typeof COMMUNITY_PLATFORMS)[number], "all">;
 export type CommunityRegion = Exclude<(typeof COMMUNITY_REGIONS)[number], "all">;
 export type CommunityPostType = Exclude<(typeof COMMUNITY_TYPES)[number], "all">;
 
+export type CommunityPostMeta = Record<string, unknown>;
+
 export interface CommunityPost {
   id: string;
+  external_id: string;
   platform: CommunityPlatform;
   author: string;
   region: CommunityRegion;
   content: string;
   type: CommunityPostType;
   timestamp: string;
+  source?: string;
+  meta?: CommunityPostMeta;
 }
 
 export const COMMUNITY_POSTS: CommunityPost[] = [
   {
     id: "p001",
+    external_id: "p001",
     platform: "systematic",
     author: "Priya Sharma",
     region: "india",
@@ -28,6 +41,7 @@ export const COMMUNITY_POSTS: CommunityPost[] = [
   },
   {
     id: "p002",
+    external_id: "p002",
     platform: "discord",
     author: "Lars Eriksson",
     region: "europe",
@@ -37,6 +51,7 @@ export const COMMUNITY_POSTS: CommunityPost[] = [
   },
   {
     id: "p003",
+    external_id: "p003",
     platform: "systematic",
     author: "Marcus Johnson",
     region: "us",
@@ -46,6 +61,7 @@ export const COMMUNITY_POSTS: CommunityPost[] = [
   },
   {
     id: "p004",
+    external_id: "p004",
     platform: "discord",
     author: "Kenji Tanaka",
     region: "japan",
@@ -55,6 +71,7 @@ export const COMMUNITY_POSTS: CommunityPost[] = [
   },
   {
     id: "p005",
+    external_id: "p005",
     platform: "systematic",
     author: "Ana Souza",
     region: "brazil",
@@ -64,6 +81,7 @@ export const COMMUNITY_POSTS: CommunityPost[] = [
   },
   {
     id: "p006",
+    external_id: "p006",
     platform: "discord",
     author: "Divya Nair",
     region: "india",
@@ -73,6 +91,7 @@ export const COMMUNITY_POSTS: CommunityPost[] = [
   },
   {
     id: "p007",
+    external_id: "p007",
     platform: "systematic",
     author: "Sophie Bernard",
     region: "europe",
@@ -82,6 +101,7 @@ export const COMMUNITY_POSTS: CommunityPost[] = [
   },
   {
     id: "p008",
+    external_id: "p008",
     platform: "discord",
     author: "Taro Yamamoto",
     region: "japan",
@@ -91,6 +111,7 @@ export const COMMUNITY_POSTS: CommunityPost[] = [
   },
   {
     id: "p009",
+    external_id: "p009",
     platform: "systematic",
     author: "Carlos Lima",
     region: "brazil",
@@ -100,6 +121,7 @@ export const COMMUNITY_POSTS: CommunityPost[] = [
   },
   {
     id: "p010",
+    external_id: "p010",
     platform: "discord",
     author: "Sarah Chen",
     region: "us",
@@ -109,6 +131,7 @@ export const COMMUNITY_POSTS: CommunityPost[] = [
   },
   {
     id: "p011",
+    external_id: "p011",
     platform: "systematic",
     author: "Rahul Verma",
     region: "india",
@@ -118,6 +141,7 @@ export const COMMUNITY_POSTS: CommunityPost[] = [
   },
   {
     id: "p012",
+    external_id: "p012",
     platform: "discord",
     author: "Emma Wilson",
     region: "us",
@@ -127,6 +151,7 @@ export const COMMUNITY_POSTS: CommunityPost[] = [
   },
   {
     id: "p013",
+    external_id: "p013",
     platform: "systematic",
     author: "David Park",
     region: "us",
@@ -136,6 +161,7 @@ export const COMMUNITY_POSTS: CommunityPost[] = [
   },
   {
     id: "p014",
+    external_id: "p014",
     platform: "discord",
     author: "Giulia Romano",
     region: "europe",
@@ -145,6 +171,7 @@ export const COMMUNITY_POSTS: CommunityPost[] = [
   },
   {
     id: "p015",
+    external_id: "p015",
     platform: "systematic",
     author: "Michael Torres",
     region: "us",

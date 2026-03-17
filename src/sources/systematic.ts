@@ -1,4 +1,5 @@
 import { type CommunityPost } from "../data/community-posts.js";
+import { persistPost } from "../db/neon.js";
 
 const SYSTEMATIC_BOARD_URL =
   "https://systematic.workato.com/t5/workato-pros-discussion-board/bd-p/workato-pros-discussion";
@@ -51,13 +52,28 @@ function parseRssFeed(xml: string, limit: number): ParsedFeedItem[] {
 function normalizeSystematicPosts(items: ParsedFeedItem[]): CommunityPost[] {
   return items.map((item) => ({
     id: item.id,
+    external_id: item.id,
     platform: "systematic",
     author: item.author,
     region: "unknown",
     content: item.title,
     type: item.title.trim().endsWith("?") ? "question" : "announcement",
     timestamp: item.publishedAt,
+    source: "systematic_live",
+    meta: {},
   }));
+}
+
+async function persistNormalizedPosts(posts: CommunityPost[]): Promise<void> {
+  await Promise.all(
+    posts.map(async (post) => {
+      try {
+        await persistPost(post);
+      } catch (error) {
+        console.error(`[systematic] Failed to persist post ${post.id}`, error);
+      }
+    })
+  );
 }
 
 async function tryFetch(url: string): Promise<Response | null> {
@@ -90,7 +106,9 @@ export async function fetchSystematicPosts(limit = 10): Promise<CommunityPost[]>
 
     if (contentType.includes("application/json")) {
       const payload = (await response.json()) as { posts?: ParsedFeedItem[] };
-      return normalizeSystematicPosts((payload.posts ?? []).slice(0, limit));
+      const posts = normalizeSystematicPosts((payload.posts ?? []).slice(0, limit));
+      await persistNormalizedPosts(posts);
+      return posts;
     }
 
     if (
@@ -99,7 +117,9 @@ export async function fetchSystematicPosts(limit = 10): Promise<CommunityPost[]>
       contentType.includes("text/xml")
     ) {
       const xml = await response.text();
-      return normalizeSystematicPosts(parseRssFeed(xml, limit));
+      const posts = normalizeSystematicPosts(parseRssFeed(xml, limit));
+      await persistNormalizedPosts(posts);
+      return posts;
     }
 
     if (contentType.includes("text/html")) {

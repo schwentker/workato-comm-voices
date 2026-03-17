@@ -7,7 +7,7 @@ import { getCommunityPosts } from "../sources/community-posts.js";
 export function registerCommunityTools(server: McpServer): void {
   server.tool(
     "get_community_posts",
-    "Fetch recent community posts from Workato community channels (Systematic, Discord, Slack). Returns posts with author, region, platform, content, and type (question/feature_request/announcement).",
+    "Fetch recent community posts from Workato community channels (Systematic, Discord, Slack). Returns posts with author, region, platform, content, and type (question/feature_request/integration_pain/discussion/announcement).",
     {
       platform: z
         .enum(COMMUNITY_PLATFORMS)
@@ -23,7 +23,9 @@ export function registerCommunityTools(server: McpServer): void {
         .enum(COMMUNITY_TYPES)
         .optional()
         .default("all")
-        .describe('Filter by type: "question", "feature_request", "announcement", or "all"'),
+        .describe(
+          'Filter by type: "question", "feature_request", "integration_pain", "discussion", "announcement", or "all"'
+        ),
       limit: z.number().int().min(1).max(100).optional().describe("Maximum number of posts to return"),
     },
     async ({ platform = "all", region = "all", type = "all", limit }) => {
