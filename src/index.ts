@@ -106,8 +106,12 @@ app.use("/community-posts", async (req: Request, res: Response) => {
 const transports = new Map<string, SSEServerTransport>();
 
 app.get("/sse", async (_req: Request, res: Response) => {
-  if (!requireBearerAuth(_req, res)) {
+  /* if (!requireBearerAuth(_req, res)) {
     return;
+    } */
+  // TEMP: allow unauthenticated SSE for MCP tools (Inspector / Claude)
+  if (_req.headers.authorization !== `Bearer ${COMM_VOICES_API_TOKEN}`) {
+    console.log("SSE: allowing unauthenticated connection (demo mode)");
   }
 
   const transport = new SSEServerTransport("/messages", res);
@@ -118,8 +122,8 @@ app.get("/sse", async (_req: Request, res: Response) => {
   console.log("MAP AFTER STORE", Array.from(transports.keys()));
 
   transport.onclose = () => {
-    console.log("SESSION CLOSED", sessionId);
-    transports.delete(sessionId);
+    console.log("SESSION CLOSED (retained)", sessionId);
+    // transports.delete(sessionId);
   };
 
   transport.onerror = (error) => {
@@ -178,7 +182,7 @@ app.post("/messages", async (req: Request, res: Response) => {
   }
 });
 
-const server = app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, "0.0.0.0", () => {
   const toolCount = (
     mcp as unknown as { _registeredTools: Record<string, unknown> }
   )._registeredTools
