@@ -59,7 +59,22 @@ app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-app.get("/community-posts", async (req: Request, res: Response) => {
+app.use("/community-posts", async (req: Request, res: Response) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  if (req.method !== "GET") {
+    res.status(405).json({ error: "Method Not Allowed" });
+    return;
+  }
+
   const platform = getAllowedQueryValue(req.query["platform"], COMMUNITY_PLATFORMS);
   const region = getAllowedQueryValue(req.query["region"], COMMUNITY_REGIONS);
   const type = getAllowedQueryValue(req.query["type"], COMMUNITY_TYPES);

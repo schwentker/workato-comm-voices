@@ -20,7 +20,7 @@ export interface CommunityPostFilters {
 }
 
 function withSource(posts: CommunityPost[], source: string): CommunityPostResult[] {
-  return posts.map((post) => ({ ...post, source }));
+  return posts.map((post) => ({ ...post, source: post.source ?? source }));
 }
 
 export async function getCommunityPosts({

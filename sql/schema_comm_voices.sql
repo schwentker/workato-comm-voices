@@ -1,16 +1,17 @@
 CREATE TABLE IF NOT EXISTS posts (
-  id VARCHAR(50) PRIMARY KEY,
-  platform VARCHAR(20) NOT NULL,
-  author VARCHAR(100),
-  region VARCHAR(20),
+  id TEXT PRIMARY KEY,
+  external_id TEXT,
+  platform TEXT NOT NULL,
+  author TEXT,
+  region TEXT,
   content TEXT,
-  type VARCHAR(20),
-  timestamp TIMESTAMPTZ,
-  source VARCHAR(50),
-  raw_url TEXT,
-  upvotes INTEGER DEFAULT 0,
-  is_answered BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  type TEXT,
+  timestamp TIMESTAMP,
+  source TEXT,
+  meta JSONB DEFAULT '{}'::jsonb,
+  fingerprint TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS members (
@@ -33,7 +34,7 @@ CREATE TABLE IF NOT EXISTS post_tags (
 );
 
 CREATE INDEX IF NOT EXISTS idx_posts_platform ON posts(platform);
-CREATE INDEX IF NOT EXISTS idx_posts_region ON posts(region);
 CREATE INDEX IF NOT EXISTS idx_posts_type ON posts(type);
+CREATE INDEX IF NOT EXISTS idx_posts_fingerprint ON posts(fingerprint);
 CREATE INDEX IF NOT EXISTS idx_posts_timestamp ON posts(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_members_platform ON members(platform);
