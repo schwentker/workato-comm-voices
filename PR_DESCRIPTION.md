@@ -1,7 +1,7 @@
 # PR: Align MCP Hackathon Server to Neon + Expected Tool Contract
 
 ## Summary
-This PR aligns the repository with the intended build plan for `workato-hackathon-mcp`:
+This PR aligns the repository with the intended build plan for `workato-comm-voices`:
 - Neon-backed TypeScript MCP server
 - SSE transport
 - Expected core MCP tool contract

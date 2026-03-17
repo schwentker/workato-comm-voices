@@ -1,4 +1,4 @@
-# workato-hackathon-mcp
+# workato-comm-voices
 
 **A community intelligence layer for Workato's global developer ecosystem — built with MCP, Neon, and Fly.io.**
 
@@ -37,7 +37,7 @@ It also directly addresses the platform question Workato is navigating: **System
 Claude Desktop / Agent Studio Genie
         │
         ▼ MCP (SSE)
-workato-hackathon-mcp (Fly.io)
+workato-comm-voices (Fly.io)
         │
         ├── GET /community-posts
         │       ├── Reddit r/workato (live)
@@ -105,9 +105,9 @@ Built on historic data from Workato's own hackathon program — internal employe
 ## Live endpoints
 
 ```
-https://workato-hackathon-mcp.fly.dev/health
-https://workato-hackathon-mcp.fly.dev/sse
-https://workato-hackathon-mcp.fly.dev/community-posts
+https://workato-comm-voices.fly.dev/health
+https://workato-comm-voices.fly.dev/sse
+https://workato-comm-voices.fly.dev/community-posts
 ```
 
 ---
@@ -115,8 +115,8 @@ https://workato-hackathon-mcp.fly.dev/community-posts
 ## Local setup
 
 ```bash
-git clone https://github.com/schwentker/workato-hackathon-mcp
-cd workato-hackathon-mcp
+git clone https://github.com/schwentker/workato-comm-voices
+cd workato-comm-voices
 nvm use 20
 npm install
 cp .env.example .env
@@ -140,7 +140,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "workato-community": {
-      "url": "https://workato-hackathon-mcp.fly.dev/sse",
+      "url": "https://workato-comm-voices.fly.dev/sse",
       "headers": {
         "Authorization": "Bearer YOUR_COMM_VOICES_API_TOKEN"
       }

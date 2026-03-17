@@ -17,7 +17,7 @@ const COMM_VOICES_API_TOKEN = process.env["COMM_VOICES_API_TOKEN"];
 const db = getNeonClient();
 
 const mcp = new McpServer({
-  name: "workato-hackathon-mcp",
+  name: "workato-comm-voices",
   version: "1.0.0",
 });
 
@@ -119,18 +119,18 @@ const server = app.listen(PORT, () => {
     ? Object.keys((mcp as unknown as { _registeredTools: Record<string, unknown> })._registeredTools).length
     : "unknown";
 
-  console.log(`[workato-hackathon-mcp] Listening on port ${PORT}`);
-  console.log(`[workato-hackathon-mcp] Registered tools: ${toolCount}`);
-  console.log(`[workato-hackathon-mcp] SSE endpoint:  GET  http://localhost:${PORT}/sse`);
-  console.log(`[workato-hackathon-mcp] Message endpoint: POST http://localhost:${PORT}/messages`);
-  console.log(`[workato-hackathon-mcp] Health endpoint:  GET  http://localhost:${PORT}/health`);
-  console.log(`[workato-hackathon-mcp] Community endpoint: GET  http://localhost:${PORT}/community-posts`);
+  console.log(`[workato-comm-voices] Listening on port ${PORT}`);
+  console.log(`[workato-comm-voices] Registered tools: ${toolCount}`);
+  console.log(`[workato-comm-voices] SSE endpoint:  GET  http://localhost:${PORT}/sse`);
+  console.log(`[workato-comm-voices] Message endpoint: POST http://localhost:${PORT}/messages`);
+  console.log(`[workato-comm-voices] Health endpoint:  GET  http://localhost:${PORT}/health`);
+  console.log(`[workato-comm-voices] Community endpoint: GET  http://localhost:${PORT}/community-posts`);
 });
 
 process.on("SIGTERM", () => {
-  console.log("[workato-hackathon-mcp] SIGTERM received - shutting down gracefully");
+  console.log("[workato-comm-voices] SIGTERM received - shutting down gracefully");
   server.close(() => {
-    console.log("[workato-hackathon-mcp] HTTP server closed");
+    console.log("[workato-comm-voices] HTTP server closed");
     void closeNeonClient();
     process.exit(0);
   });

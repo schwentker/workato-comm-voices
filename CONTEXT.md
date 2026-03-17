@@ -1,10 +1,10 @@
-# Workato Hackathon MCP — Session Context
+# Workato Comm Voices — Session Context
 
 ## Status: ✅ DEPLOYED
-- **Live URL:** https://workato-hackathon-mcp.fly.dev
-- **Health:** https://workato-hackathon-mcp.fly.dev/health → `{"status":"ok"}`
-- **Community Posts:** https://workato-hackathon-mcp.fly.dev/community-posts
-- **MCP SSE:** https://workato-hackathon-mcp.fly.dev/sse
+- **Live URL:** https://workato-comm-voices.fly.dev
+- **Health:** https://workato-comm-voices.fly.dev/health → `{"status":"ok"}`
+- **Community Posts:** https://workato-comm-voices.fly.dev/community-posts
+- **MCP SSE:** https://workato-comm-voices.fly.dev/sse
 - **DB:** Neon `enterprise-hack-hub / neondb` — fully seeded
 
 ## Files Changed This Session
@@ -55,7 +55,7 @@ Neon's pre-existing tables use different column names. Seeder adapted; tools may
 | `awards` | added `name`, `prize`, `rank`, `team_id`, `notes` via ALTER TABLE | already expected these |
 
 ## Fly.io
-- App: `workato-hackathon-mcp`, region `sjc`, 2 machines (HA)
+- App: `workato-comm-voices`, region `sjc`, 2 machines (HA)
 - Secrets set: `DATABASE_URL`, `PORT`, `NODE_ENV`
 - Webhook secrets not yet set — add when Workato recipes are ready:
   ```
