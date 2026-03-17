@@ -60,10 +60,6 @@ app.get("/health", (_req: Request, res: Response) => {
 });
 
 app.get("/community-posts", async (req: Request, res: Response) => {
-  if (!requireBearerAuth(req, res)) {
-    return;
-  }
-
   const platform = getAllowedQueryValue(req.query["platform"], COMMUNITY_PLATFORMS);
   const region = getAllowedQueryValue(req.query["region"], COMMUNITY_REGIONS);
   const type = getAllowedQueryValue(req.query["type"], COMMUNITY_TYPES);
