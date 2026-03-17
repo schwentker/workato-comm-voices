@@ -46,19 +46,12 @@ workato-comm-voices (Fly.io)
         │       └── Discord (synthetic)
         │
         ├── MCP Tools
-        │       ├── get_community_posts (platform/region/type filters)
-        │       ├── register_participant
-        │       ├── match_teams_by_skills
-        │       ├── confirm_team_formation
-        │       ├── submit_project
-        │       ├── score_submission
-        │       ├── trigger_awards
-        │       └── get_event_status
+        │       └── get_community_posts (platform/region/type filters)
         │
-        └── Neon DB (historic Workato hackathon data)
-                ├── events (HackAIton, Berlin, REC Chennai, API World...)
-                ├── judges
-                └── winning_projects
+        └── Neon DB (community posts persistence)
+                ├── posts
+                ├── members
+                └── post_tags
 ```
 
 ---
@@ -77,17 +70,7 @@ Fetch recent posts across all community channels.
 | type | string | question, feature_request, announcement, all |
 | limit | integer | 1-50, default 10 |
 
-### Hackathon Management
-
-Built on historic data from Workato's own hackathon program — internal employee hackathons (2022-2024), HackAIton Hyderabad, Berlin Hack-AI-thon, REC Chennai university events, and API World sponsor tracks.
-
-- `register_participant` — onboard a new hackathon participant
-- `match_teams_by_skills` — find complementary team members by skill set
-- `confirm_team_formation` — lock a team and fire onboarding recipe
-- `submit_project` — record a hackathon submission
-- `score_submission` — apply Workato's 100-point judging rubric
-- `trigger_awards` — aggregate scores and fire awards workflow
-- `get_event_status` — real-time event dashboard
+Hackathon management tools are planned for a future release and not part of this repo currently.
 
 ---
 
