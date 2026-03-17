@@ -85,7 +85,7 @@ const TYPE_COLORS: Record<string, string> = {
   announcement: "#6B4FBB",
 };
 
-const LIVE_BASE_URL = "https://workato-comm-voices.fly.dev";
+const COMMUNITY_POSTS_URL = "https://workato-comm-voices.fly.dev/community-posts";
 
 function truncateContent(text: string, maxLength = 150): string {
   if (text.length <= maxLength) {
@@ -134,27 +134,6 @@ function isLikelyUnanswered(post: CommunityPost): boolean {
   return !["solved", "resolved", "fixed", "figured out", "thanks, got it"].some((token) =>
     lowerContent.includes(token)
   );
-}
-
-function getPostsUrl(): string {
-  if (import.meta.env.VITE_COMM_VOICES_PROXY_DISABLED === "true") {
-    const baseUrl = import.meta.env.VITE_COMM_VOICES_API_BASE_URL ?? LIVE_BASE_URL;
-    return `${baseUrl.replace(/\/$/, "")}/community-posts`;
-  }
-
-  return "/api/community-posts";
-}
-
-function getPostsHeaders(): HeadersInit {
-  if (import.meta.env.VITE_COMM_VOICES_PROXY_DISABLED !== "true") {
-    return { Accept: "application/json" };
-  }
-
-  const token = import.meta.env.VITE_COMM_VOICES_API_TOKEN;
-  return {
-    Accept: "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
 }
 
 function buildDonutSegments(breakdown: Record<string, number>): string {
@@ -247,8 +226,8 @@ function App() {
       setError(null);
 
       try {
-        const response = await fetch(getPostsUrl(), {
-          headers: getPostsHeaders(),
+        const response = await fetch(COMMUNITY_POSTS_URL, {
+          headers: { Accept: "application/json" },
           signal: controller.signal,
         });
 
@@ -337,8 +316,8 @@ function App() {
     setError(null);
 
     try {
-      const response = await fetch(getPostsUrl(), {
-        headers: getPostsHeaders(),
+      const response = await fetch(COMMUNITY_POSTS_URL, {
+        headers: { Accept: "application/json" },
       });
 
       if (!response.ok) {
@@ -360,21 +339,14 @@ function App() {
     setRouteStatus((current) => ({ ...current, [post.id]: "sending" }));
 
     try {
-      const response = await fetch("/api/route-to-product", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          post,
-          routedAt: new Date().toISOString(),
-          channel: "workato-community-voices",
-        }),
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, 600);
       });
-
-      if (!response.ok) {
-        throw new Error(`Route failed with ${response.status}`);
-      }
+      console.info("Feature request routed in demo mode", {
+        post,
+        routedAt: new Date().toISOString(),
+        channel: "workato-community-voices",
+      });
 
       setRouteStatus((current) => ({ ...current, [post.id]: "sent" }));
     } catch (_err) {
@@ -455,8 +427,7 @@ function App() {
 
             {error ? (
               <div className="rounded-[28px] border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
-                {error}. The app expects either Cloudflare Pages functions under `/api/*` or `VITE_COMM_VOICES_PROXY_DISABLED=true`
-                with `VITE_COMM_VOICES_API_TOKEN` for direct local calls.
+                {error}. The static demo fetches community posts directly from `workato-comm-voices.fly.dev`.
               </div>
             ) : null}
 

@@ -1,3 +1,0 @@
-COMM_VOICES_API_BASE_URL=https://workato-comm-voices.fly.dev
-COMM_VOICES_API_TOKEN=your_comm_voices_api_token
-WORKATO_ROUTE_TO_PRODUCT_WEBHOOK=https://www.workato.com/webhooks/your-recipe-trigger
