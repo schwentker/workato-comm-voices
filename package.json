@@ -9,6 +9,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
+    "db:setup": "psql $DATABASE_URL < sql/schema_comm_voices.sql",
     "seed:historic": "tsx --env-file=.env scripts/seed-historic.ts"
   },
   "dependencies": {

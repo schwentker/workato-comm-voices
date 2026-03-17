@@ -190,5 +190,5 @@ The recipe pattern that makes Workato powerful for enterprise automation applies
 
 ---
 
-*Built by [Robert Schwentker](https://linkedin.com/in/schwentker) — Sandbox Labs AI*
+*Built by [Robert Schwentker](https://linkedin.com/in/schwentker) — Sandbox Labs AI · Contributor: Codex*
 *Stack: TypeScript · MCP · Neon · Fly.io · Workato*
