@@ -14,6 +14,7 @@ import { registerTeamTools } from "./tools/teams.js";
 import { registerSubmissionTools } from "./tools/submissions.js";
 import { registerAwardTools } from "./tools/awards.js";
 import { registerCommunityTools } from "./tools/community-posts.js";
+import { registerRouteSignalTool } from "./tools/route-signal.js";
 
 const PORT = parseInt(process.env["PORT"] ?? "3000", 10);
 const HOST = process.env["HOST"] ?? "0.0.0.0";
@@ -31,6 +32,7 @@ registerTeamTools(mcp, db);
 registerSubmissionTools(mcp, db);
 registerAwardTools(mcp, db);
 registerCommunityTools(mcp);
+registerRouteSignalTool(mcp, db);
 
 const app = express();
 app.use(express.json());
@@ -180,6 +182,40 @@ app.post("/messages", async (req: Request, res: Response) => {
     );
     res.status(400).json({ error: "Invalid MCP message" });
   }
+});
+
+const INSIGHT_KEYWORDS = ["integration", "automation", "agent", "error", "pricing"] as const;
+const INSIGHT_PREFIXES = [
+  "Increasing demand for",
+  "Rising issues around",
+  "Growing interest in",
+] as const;
+
+app.get("/insights/acknowledged", async (_req: Request, res: Response) => {
+  const rows = await db<{ content: string }[]>`
+    SELECT content FROM posts WHERE timestamp > NOW() - INTERVAL '24 hours'
+  `;
+
+  const counts: Record<string, number> = {};
+  for (const kw of INSIGHT_KEYWORDS) counts[kw] = 0;
+
+  for (const row of rows) {
+    const lower = row.content.toLowerCase();
+    for (const kw of INSIGHT_KEYWORDS) {
+      if (lower.includes(kw)) counts[kw] = (counts[kw] ?? 0) + 1;
+    }
+  }
+
+  const top = Object.entries(counts)
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
+
+  const acknowledged = top.map(
+    ([theme], i) => `${INSIGHT_PREFIXES[i] ?? "Growing interest in"} ${theme}`,
+  );
+
+  res.json({ acknowledged });
 });
 
 const server = app.listen(PORT, "0.0.0.0", () => {
