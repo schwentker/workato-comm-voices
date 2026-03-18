@@ -5,7 +5,11 @@
 - **Health:** https://workato-comm-voices.fly.dev/health → `{"status":"ok"}`
 - **Community Posts:** https://workato-comm-voices.fly.dev/community-posts
 - **MCP SSE:** https://workato-comm-voices.fly.dev/sse
+<<<<<<< HEAD
+- **DB:** Neon `enterprise-hack-hub / neondb` — fully seeded
+=======
 - **DB:** Neon `enterprise-hack-hub / neondb` — community voices schema in progress
+>>>>>>> claude/dreamy-curie
 
 ## Files Changed This Session
 | File | Change |
