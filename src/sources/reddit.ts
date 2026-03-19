@@ -1,212 +1,54 @@
 import { type CommunityPost } from "../data/community-posts.js";
-import { persistPost } from "../db/neon.js";
 
-const REDDIT_SEARCH_BASE_URL = "https://www.reddit.com/search.json";
-const DEFAULT_SEARCH_QUERY = "workato";
-const DEFAULT_PAGE_SIZE = 10;
-const MAX_SELF_TEXT_LENGTH = 200;
+const SFW_BLOCKLIST = ["nsfw", "porn", "xxx", "nude", "naked", "sex", "adult content"];
 
-let searchAfterCursor: string | null = null;
-let activeSearchQuery = DEFAULT_SEARCH_QUERY;
-
-interface RedditSearchChild {
-  data: {
-    id: string;
-    author?: string;
-    title?: string;
-    selftext?: string;
-    created_utc?: number;
-    subreddit?: string;
-    score?: number;
-    num_comments?: number;
-    promoted?: boolean;
-    is_ad?: boolean;
-    over_18?: boolean;
-  };
-}
-
-interface RedditSearchResponse {
-  data?: {
-    after?: string | null;
-    children?: RedditSearchChild[];
-  };
-}
-
-function getSearchUrl(query: string, after: string | null, limit: number): string {
-  const params = new URLSearchParams({
-    q: query,
-    sort: "new",
-    limit: String(limit),
-  });
-
-  if (after) {
-    params.set("after", after);
-  }
-
-  return `${REDDIT_SEARCH_BASE_URL}?${params.toString()}`;
-}
-
-function truncateText(value: string, maxLength: number): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, maxLength).trimEnd()}...`;
-}
-
-function buildContent(title: string, selfText: string): string {
-  const normalizedTitle = title.trim();
-  const normalizedSelfText = truncateText(selfText, MAX_SELF_TEXT_LENGTH);
-
-  if (!normalizedSelfText) {
-    return normalizedTitle;
-  }
-
-  return `${normalizedTitle} ${normalizedSelfText}`.trim();
-}
-
-function isDeletedValue(value: string): boolean {
-  const normalized = value.trim().toLowerCase();
-  return normalized === "[deleted]" || normalized === "[removed]";
-}
-
-function hasMeaningfulContent(title: string, selfText: string): boolean {
-  const normalizedTitle = title.trim();
-  const normalizedSelfText = selfText.trim();
-
-  if (!normalizedTitle && !normalizedSelfText) {
-    return false;
-  }
-
-  if (normalizedTitle && !isDeletedValue(normalizedTitle)) {
-    return true;
-  }
-
-  return Boolean(normalizedSelfText && !isDeletedValue(normalizedSelfText));
-}
-
-function inferIntent(title: string, content: string): CommunityPost["type"] {
-  const text = `${title} ${content}`.toLowerCase();
-
-  if (text.includes("feature") || text.includes("request")) {
-    return "feature_request";
-  }
-
-  if (title.trim().endsWith("?") || content.includes("?")) {
-    return "question";
-  }
-
-  if (
-    text.includes("integration") ||
-    text.includes("zapier") ||
-    text.includes("n8n") ||
-    text.includes("salesforce")
-  ) {
-    return "integration_pain";
-  }
-
+function classifyType(title: string): CommunityPost["type"] {
+  const t = title.toLowerCase();
+  if (/error|issue|broken|fail|bug|not working/.test(t)) return "integration_pain";
+  if (/feature|request|wish|would be nice|add support/.test(t)) return "feature_request";
+  if (/how|help|\?/.test(t)) return "question";
+  if (/tip|trick|guide|tutorial|how i|sharing/.test(t)) return "discussion";
   return "discussion";
 }
 
-function normalizePost(child: RedditSearchChild): CommunityPost | null {
-  const post = child.data;
-  const title = post.title?.trim() ?? "";
-  const selfText = post.selftext?.trim() ?? "";
-
-  if (post.promoted || post.is_ad || post.over_18) {
-    return null;
-  }
-
-  if (!post.id || !post.created_utc || !hasMeaningfulContent(title, selfText)) {
-    return null;
-  }
-
-  const content = buildContent(title, selfText);
-  if (!content) {
-    return null;
-  }
-
-  const score = post.score ?? 0;
-  const comments = post.num_comments ?? 0;
-
-  return {
-    id: `reddit_${post.id}`,
-    external_id: post.id,
-    platform: "reddit",
-    author: post.author?.trim() || "unknown",
-    region: "unknown",
-    content,
-    type: inferIntent(title, content),
-    timestamp: new Date(post.created_utc * 1000).toISOString(),
-    source: "reddit_live",
-    meta: {
-      subreddit: post.subreddit ?? "unknown",
-      score,
-      comments,
-      rank: score + comments * 2,
-    },
-  };
-}
-
-async function persistNormalizedPosts(posts: CommunityPost[]): Promise<void> {
-  await Promise.all(
-    posts.map(async (post) => {
-      try {
-        await persistPost(post);
-        console.log("persisted_post", post.id);
-      } catch (error) {
-        console.error(`[reddit] Failed to persist post ${post.id}`, error);
-      }
-    })
-  );
-}
-
-export async function fetchRedditPosts(): Promise<CommunityPost[]> {
-  const requestUrl = getSearchUrl(activeSearchQuery, searchAfterCursor, DEFAULT_PAGE_SIZE);
-
+export async function fetchRedditPosts(limit = 25): Promise<CommunityPost[]> {
   try {
-    const response = await fetch(requestUrl, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "workato-community-mcp/1.0 (+https://workato-comm-voices.fly.dev)",
-      },
-    });
+    const res = await fetch(
+      `https://www.reddit.com/search.json?q=workato&sort=new&limit=${limit}&t=week`,
+      { headers: { "User-Agent": "workato-comm-voices/1.0 (community signal tool)" } },
+    );
 
-    if (response.status === 429) {
-      console.warn("[reddit] Rate limited while fetching search results");
-      return [];
-    }
+    if (!res.ok) return [];
 
-    if (!response.ok) {
-      console.error(`[reddit] Failed to fetch search results: ${response.status} ${response.statusText}`);
-      return [];
-    }
+    const json = (await res.json()) as any;
+    const children = json?.data?.children ?? [];
 
-    const payload = (await response.json()) as RedditSearchResponse;
-    const listing = payload.data;
-    const children = listing?.children ?? [];
-
-    const after = listing?.after ?? null;
-    searchAfterCursor = after;
-
-    if (searchAfterCursor === null) {
-      // Resetting here allows the next poll cycle to start over with the newest page.
-      activeSearchQuery = DEFAULT_SEARCH_QUERY;
-    }
-
-    const posts = children
-      .map((child) => normalizePost(child))
-      .filter((post): post is CommunityPost => post !== null);
-
-    console.log("reddit_fetch_count", posts.length);
-    console.log("after_cursor", after);
-
-    await persistNormalizedPosts(posts);
-
-    return posts;
-  } catch (error) {
-    console.error("[reddit] Failed to fetch Reddit posts", error);
+    return children
+      .map((c: any) => c.data)
+      .filter((p: any) => {
+        if (p.over_18) return false;
+        if (p.author === "[deleted]") return false;
+        if (p.selftext === "[removed]" || p.selftext === "[deleted]") return false;
+        if ((p.score ?? 0) < -5) return false;
+        const text = `${p.title} ${p.selftext ?? ""}`.toLowerCase();
+        if (SFW_BLOCKLIST.some((w: string) => text.includes(w))) return false;
+        return true;
+      })
+      .map(
+        (p: any): CommunityPost => ({
+          id: `reddit_${p.id}`,
+          external_id: p.id,
+          platform: "reddit",
+          author: (p.author ?? "unknown").slice(0, 50),
+          region: "unknown",
+          content: p.title + (p.selftext ? " — " + (p.selftext as string).slice(0, 300) : ""),
+          type: classifyType(p.title ?? ""),
+          timestamp: new Date((p.created_utc ?? 0) * 1000).toISOString(),
+          source: "live",
+        }),
+      );
+  } catch (err) {
+    console.error("Reddit fetch failed (non-blocking):", err);
     return [];
   }
 }
